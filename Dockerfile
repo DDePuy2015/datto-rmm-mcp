@@ -5,6 +5,7 @@ FROM node:22-alpine AS builder
 ARG VERSION="unknown"
 ARG COMMIT_SHA="unknown"
 ARG BUILD_DATE="unknown"
+ARG GITHUB_TOKEN
 
 # Set working directory
 WORKDIR /app
@@ -12,8 +13,16 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies using Docker build secret for GitHub Packages auth
-RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm ci --ignore-scripts
+# Install dependencies with GitHub Packages auth. A temporary .npmrc carries the
+# token (passed via the GITHUB_TOKEN build arg) so npm can read the private
+# @wyre-technology/* package, then it is removed so the token is never baked
+# into the image. This ARG-based approach works with one-click build platforms
+# (DigitalOcean App Platform) that inject build-time env vars but do not support
+# BuildKit `--mount=type=secret`.
+RUN echo "@wyre-technology:registry=https://npm.pkg.github.com" > .npmrc && \
+    echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> .npmrc && \
+    npm ci --ignore-scripts && \
+    rm -f .npmrc
 
 # Copy source code
 COPY . .
@@ -21,8 +30,12 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Prune dev dependencies in builder stage (must happen here while npmrc secret is available)
-RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm prune --omit=dev
+# Prune dev dependencies in builder stage (re-write the temporary .npmrc so npm
+# can re-resolve registry metadata if needed, then remove it again)
+RUN echo "@wyre-technology:registry=https://npm.pkg.github.com" > .npmrc && \
+    echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> .npmrc && \
+    npm prune --omit=dev && \
+    rm -f .npmrc
 
 # Production stage
 FROM node:22-alpine AS production
