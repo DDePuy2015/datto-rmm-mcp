@@ -1,3 +1,26 @@
+## [Unreleased]
+
+### Fixed
+
+- **Deploy buttons:** authenticate against the GitHub Packages npm registry during
+  one-click cloud builds. The `@wyre-technology/node-datto-rmm` dependency lives on
+  GitHub Packages, which has no anonymous read, so `npm install` failed with
+  `401 Unauthorized` on DigitalOcean. Operators now supply a `read:packages` PAT as a
+  build variable (`GITHUB_TOKEN` build-time secret for DigitalOcean, `NODE_AUTH_TOKEN`
+  for Cloudflare Workers). The `.npmrc` reads the token and `.do/deploy.template.yaml`
+  declares the build-time secret.
+- **Dockerfile:** switched GitHub Packages auth from a BuildKit `--mount=type=secret`
+  npmrc mount to an `ARG GITHUB_TOKEN` + temporary `.npmrc` pattern. DigitalOcean App
+  Platform injects build-time env vars but does not support `docker build --secret`, so
+  the prior approach could not authenticate during a one-click deploy.
+  Part of the fleet-wide fix mirroring wyre-technology/ninjaone-mcp#35.
+
+### Changed
+
+- **Publishing:** the package now publishes to the GitHub Packages npm registry
+  (`@semantic-release/npm` `npmPublish: true`), aligning with the rest of the
+  `@wyre-technology` fleet.
+
 ## [1.3.4](https://github.com/wyre-technology/datto-rmm-mcp/compare/v1.3.3...v1.3.4) (2026-04-07)
 
 
