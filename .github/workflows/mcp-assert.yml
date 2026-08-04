@@ -8,6 +8,9 @@ on:
 
 jobs:
   assert:
+    permissions:
+      contents: read
+      packages: read
     uses: wyre-technology/.github/.github/workflows/mcp-assert.yml@198605d0575e27374cf9b67fba3aa8c7b91de2c0  # main
     with:
       entry: dist/index.js
