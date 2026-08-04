@@ -170,7 +170,11 @@ describe("MCP Apps alert card", () => {
         result?: { contents?: { text?: string }[] };
       };
       const text = body.result?.contents?.[0]?.text ?? "";
-      expect(text).toContain('window.__BRAND__={"name":"Acme MSP"}');
+      expect(text).toContain(
+        `<meta name="mcp-brand" content="${encodeURIComponent(
+          JSON.stringify({ name: "Acme MSP" }),
+        )}">`,
+      );
       expect(text).not.toContain("BRAND_INJECT");
     });
 
@@ -225,23 +229,26 @@ describe("MCP Apps alert card", () => {
   });
 
   describe("applyBrandInjection", () => {
-    it("replaces the BRAND_INJECT marker with a window.__BRAND__ script", () => {
+    it("replaces the BRAND_INJECT marker with encoded metadata", () => {
       const out = applyBrandInjection(ALERT_CARD_HTML, {
         name: "Acme MSP",
         primaryColor: "#ff0000",
       });
       expect(out).not.toContain("BRAND_INJECT");
       expect(out).toContain(
-        'window.__BRAND__={"name":"Acme MSP","primaryColor":"#ff0000"}'
+        `<meta name="mcp-brand" content="${encodeURIComponent(
+          JSON.stringify({ name: "Acme MSP", primaryColor: "#ff0000" }),
+        )}">`,
       );
     });
 
-    it("escapes < so brand values cannot break out of the script tag", () => {
+    it("keeps hostile brand values out of executable HTML and JavaScript", () => {
       const out = applyBrandInjection(ALERT_CARD_HTML, {
         name: "</script><script>alert(1)",
       });
       expect(out).not.toContain("</script><script>alert(1)");
-      expect(out).toContain("\\u003c/script");
+      expect(out).not.toContain("<script>window.__BRAND__");
+      expect(out).toContain("mcp-brand");
     });
 
     it("returns the HTML unchanged for an empty brand", () => {

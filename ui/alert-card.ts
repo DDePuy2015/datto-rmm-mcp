@@ -12,10 +12,10 @@
  * Rendering uses DOM construction (no innerHTML) — alert messages and device
  * hostnames are untrusted RMM data, so text only ever lands in text nodes.
  *
- * White-label: the card is neutral by default and applies an injected
- * `window.__BRAND__` override (set by the MCP server via MCP_BRAND_* env
- * vars or, eventually, the gateway per-org) so the same card can render in
- * any customer's brand. No injection = neutral card with no brand identity.
+ * White-label: the card is neutral by default and applies an encoded metadata
+ * override (set by the MCP server via MCP_BRAND_* env vars or, eventually,
+ * the gateway per-org) so the same card can render in any customer's brand.
+ * No injection = neutral card with no brand identity.
  */
 import { App } from "@modelcontextprotocol/ext-apps";
 
@@ -27,12 +27,6 @@ interface Brand {
   bg?: string;
   text?: string;
 }
-declare global {
-  interface Window {
-    __BRAND__?: Brand;
-  }
-}
-
 /** Mirror of AlertCard in src/alert-card.ts — keep in sync. */
 interface AlertCard {
   alertUid: string;
@@ -48,7 +42,24 @@ interface AlertCard {
   canResolve: boolean;
 }
 
-const brand: Brand = window.__BRAND__ ?? {};
+function readBrand(): Brand {
+  const encoded = document
+    .querySelector('meta[name="mcp-brand"]')
+    ?.getAttribute("content");
+  if (!encoded) return {};
+
+  try {
+    const parsed: unknown = JSON.parse(decodeURIComponent(encoded));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, value]) => typeof value === "string"),
+    ) as Brand;
+  } catch {
+    return {};
+  }
+}
+
+const brand = readBrand();
 
 // Apply any injected brand overrides onto the CSS custom properties.
 function applyBrand(): void {

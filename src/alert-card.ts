@@ -40,7 +40,7 @@ export interface AlertCard {
   canResolve: boolean;
 }
 
-/** Brand overrides injected into the card as `window.__BRAND__`. */
+/** Brand overrides injected into the card as an encoded metadata value. */
 export interface CardBrand {
   name?: string;
   logoUrl?: string;
@@ -54,18 +54,21 @@ export interface CardBrand {
 const BRAND_INJECT_MARKER = /<!-- BRAND_INJECT:[\s\S]*?-->/;
 
 /**
- * Replace the card's BRAND_INJECT comment with a `window.__BRAND__` script.
+ * Replace the card's BRAND_INJECT comment with an encoded metadata element.
  * The card ships neutral; this is the customization mechanism. An empty
- * brand returns the HTML unchanged. `<` is escaped so brand values can
- * never break out of the injected script tag.
+ * brand returns the HTML unchanged. Encoding keeps the values out of HTML
+ * and JavaScript syntax contexts.
  */
 export function applyBrandInjection(html: string, brand: CardBrand): string {
   const entries = Object.entries(brand).filter(
     ([, value]) => typeof value === "string" && value !== ""
   );
   if (entries.length === 0) return html;
-  const json = JSON.stringify(Object.fromEntries(entries)).replace(/</g, "\\u003c");
-  return html.replace(BRAND_INJECT_MARKER, `<script>window.__BRAND__=${json}</script>`);
+  const encoded = encodeURIComponent(JSON.stringify(Object.fromEntries(entries)));
+  return html.replace(
+    BRAND_INJECT_MARKER,
+    `<meta name="mcp-brand" content="${encoded}">`,
+  );
 }
 
 /**

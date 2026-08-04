@@ -6,8 +6,8 @@
     <title>Datto RMM Alert Card</title>
     <style>
       /* Brand tokens. Defaults are deliberately neutral; an MCP server (or
-         the gateway) can override them per-tenant by injecting
-         window.__BRAND__ — see the brand-inject marker comment below and
+         the gateway) can override them per-tenant by injecting an encoded
+         metadata value — see the brand-inject marker comment below and
          alert-card.ts. */
       :root {
         --brand-primary: #2563eb; /* headings, links, status accent */
@@ -131,7 +131,7 @@
       .loading { color: var(--brand-muted); font-style: italic; }
     </style>
     <!-- BRAND_INJECT: a server/gateway replaces this comment with
-         <script>window.__BRAND__={name,logoUrl,primaryColor,accentColor,bg,text}</script>
+         <meta name="mcp-brand" content="encoded JSON">
          to theme the card per-tenant. No injection = neutral defaults above. -->
   </head>
   <body>
