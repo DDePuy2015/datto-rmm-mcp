@@ -16,6 +16,10 @@ import {
   resolveGatewayCredentials,
   type DattoCredentials,
 } from "./mcp-server.js";
+import {
+  DATTO_BACKEND_TOKEN_HEADER,
+  validateBackendToken,
+} from "./backend-auth.js";
 
 // ---------------------------------------------------------------------------
 // Transport: stdio (default)
@@ -55,6 +59,13 @@ async function startHttpTransport(): Promise<void> {
       return;
     }
 
+    if (url.pathname === "/ready") {
+      const ready = Boolean(process.env.DATTO_BACKEND_TOKEN);
+      res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: ready ? "ready" : "not_ready" }));
+      return;
+    }
+
     // MCP endpoint — stateless: fresh server + transport per request
     if (url.pathname === "/mcp") {
       // Only POST is supported in stateless mode
@@ -64,6 +75,28 @@ async function startHttpTransport(): Promise<void> {
           jsonrpc: "2.0",
           error: { code: -32000, message: "Method not allowed" },
           id: null,
+        }));
+        return;
+      }
+
+      const headerValue = req.headers[DATTO_BACKEND_TOKEN_HEADER];
+      const suppliedBackendToken = Array.isArray(headerValue)
+        ? headerValue[0]
+        : headerValue;
+      const backendAuthFailure = validateBackendToken(
+        process.env.DATTO_BACKEND_TOKEN,
+        suppliedBackendToken
+      );
+      if (backendAuthFailure) {
+        res.writeHead(backendAuthFailure === "not_configured" ? 503 : 401, {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        });
+        res.end(JSON.stringify({
+          error:
+            backendAuthFailure === "not_configured"
+              ? "Backend authentication is not configured."
+              : "Backend authentication failed.",
         }));
         return;
       }
@@ -118,7 +151,7 @@ async function startHttpTransport(): Promise<void> {
 
     // 404 for everything else
     res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Not found", endpoints: ["/mcp", "/health"] }));
+    res.end(JSON.stringify({ error: "Not found", endpoints: ["/mcp", "/health", "/ready"] }));
   });
 
   await new Promise<void>((resolve) => {

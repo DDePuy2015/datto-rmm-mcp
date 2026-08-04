@@ -28,6 +28,10 @@ import {
   resolvePlatform,
   type DattoCredentials,
 } from "./mcp-server.js";
+import {
+  DATTO_BACKEND_TOKEN_HEADER,
+  validateBackendToken,
+} from "./backend-auth.js";
 
 export interface Env {
   DATTO_API_KEY?: string;
@@ -35,6 +39,7 @@ export interface Env {
   DATTO_API_SECRET?: string;
   X_API_SECRET?: string;
   DATTO_PLATFORM?: string;
+  DATTO_BACKEND_TOKEN?: string;
   AUTH_MODE?: string;
   LOG_LEVEL?: string;
 }
@@ -43,7 +48,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, X-Datto-API-Key, X-Datto-API-Secret, X-Datto-Platform",
+    "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, X-Datto-API-Key, X-Datto-API-Secret, X-Datto-Platform, X-Summit-Datto-Backend-Token",
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
 };
 
@@ -95,7 +100,28 @@ export default {
       return json({ status: "ok" });
     }
 
+    if (url.pathname === "/ready") {
+      const ready = Boolean(env.DATTO_BACKEND_TOKEN);
+      return json({ status: ready ? "ready" : "not_ready" }, ready ? 200 : 503);
+    }
+
     if (url.pathname === "/mcp") {
+      const backendAuthFailure = validateBackendToken(
+        env.DATTO_BACKEND_TOKEN,
+        request.headers.get(DATTO_BACKEND_TOKEN_HEADER) ?? undefined
+      );
+      if (backendAuthFailure) {
+        return json(
+          {
+            error:
+              backendAuthFailure === "not_configured"
+                ? "Backend authentication is not configured."
+                : "Backend authentication failed.",
+          },
+          backendAuthFailure === "not_configured" ? 503 : 401
+        );
+      }
+
       const isGatewayMode = (env.AUTH_MODE ?? "env") === "gateway";
 
       let credOverrides: DattoCredentials | undefined;
@@ -136,6 +162,6 @@ export default {
       }
     }
 
-    return json({ error: "Not found", endpoints: ["/mcp", "/health"] }, 404);
+    return json({ error: "Not found", endpoints: ["/mcp", "/health", "/ready"] }, 404);
   },
 };

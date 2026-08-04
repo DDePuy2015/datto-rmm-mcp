@@ -12,6 +12,11 @@ import worker, { type Env } from "../worker.js";
 const MCP_HEADERS = {
   Accept: "application/json, text/event-stream",
   "Content-Type": "application/json",
+  "X-Summit-Datto-Backend-Token": "backend-secret",
+};
+
+const DEFAULT_ENV: Env = {
+  DATTO_BACKEND_TOKEN: "backend-secret",
 };
 
 async function mcp(body: unknown, env: Env = {}): Promise<Response> {
@@ -21,7 +26,7 @@ async function mcp(body: unknown, env: Env = {}): Promise<Response> {
       headers: MCP_HEADERS,
       body: JSON.stringify(body),
     }),
-    env
+    { ...DEFAULT_ENV, ...env }
   );
 }
 
@@ -37,6 +42,53 @@ describe("Cloudflare Worker entrypoint", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: "ok" });
+  });
+
+  it("reports readiness only when the backend token is configured", async () => {
+    const notReady = await worker.fetch(
+      new Request("http://worker.local/ready"),
+      {}
+    );
+    expect(notReady.status).toBe(503);
+
+    const ready = await worker.fetch(
+      new Request("http://worker.local/ready"),
+      DEFAULT_ENV
+    );
+    expect(ready.status).toBe(200);
+  });
+
+  it("rejects MCP requests when the backend token is missing", async () => {
+    const res = await mcp(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {},
+      },
+      { DATTO_BACKEND_TOKEN: "" }
+    );
+    expect(res.status).toBe(503);
+  });
+
+  it("rejects MCP requests with an invalid backend token", async () => {
+    const res = await worker.fetch(
+      new Request("http://worker.local/mcp", {
+        method: "POST",
+        headers: {
+          ...MCP_HEADERS,
+          "x-summit-datto-backend-token": "wrong-token",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {},
+        }),
+      }),
+      DEFAULT_ENV
+    );
+    expect(res.status).toBe(401);
   });
 
   it("answers CORS preflight", async () => {

@@ -36,6 +36,11 @@ vi.mock("@wyre-technology/node-datto-rmm", async (importOriginal) => {
 const MCP_HEADERS = {
   Accept: "application/json, text/event-stream",
   "Content-Type": "application/json",
+  "X-Summit-Datto-Backend-Token": "backend-secret",
+};
+
+const DEFAULT_ENV: Env = {
+  DATTO_BACKEND_TOKEN: "backend-secret",
 };
 
 async function mcp(body: unknown, env: Env = {}): Promise<Response> {
@@ -45,7 +50,7 @@ async function mcp(body: unknown, env: Env = {}): Promise<Response> {
       headers: MCP_HEADERS,
       body: JSON.stringify(body),
     }),
-    env
+    { ...DEFAULT_ENV, ...env }
   );
 }
 

@@ -73,8 +73,15 @@ The server accepts credentials via environment variables:
 | `DATTO_API_KEY` | Your Datto RMM API key |
 | `DATTO_API_SECRET` | Your Datto RMM API secret |
 | `DATTO_PLATFORM` | API platform: `pinotage`, `merlot`, `concord`, `vidal`, `zinfandel`, or `syrah` (default: `concord`) |
+| `DATTO_BACKEND_TOKEN` | Hosted deployment token required on the proxy-to-provider `/mcp` request |
 
 When used with the MCP Gateway, credentials are injected via `X_API_KEY` and `X_API_SECRET` environment variables.
+
+Hosted HTTP deployments also require the proxy-only `X-Summit-Datto-Backend-Token`
+header on `/mcp`. The token is not used by the stdio transport, is never logged,
+and should be supplied from a secret manager rather than an environment literal.
+The `/health` endpoint remains unauthenticated; `/ready` reports whether the
+backend token is configured.
 
 ### Platform Selection
 
