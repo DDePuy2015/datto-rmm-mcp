@@ -18,7 +18,15 @@ import {
   statSync,
   readdirSync,
 } from 'fs';
-import { resolve, join, dirname } from 'path';
+import {
+  resolve,
+  join,
+  dirname,
+  relative,
+  isAbsolute,
+  normalize,
+  sep,
+} from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -54,10 +62,40 @@ function captureNpm(args, opts = {}) {
   return execFileSync('npm', args, opts);
 }
 
+function isSafeRelativePath(candidate) {
+  if (typeof candidate !== 'string' || candidate.length === 0 || isAbsolute(candidate)) {
+    return false;
+  }
+
+  const normalized = normalize(candidate);
+  return (
+    normalized !== '.' &&
+    normalized !== '..' &&
+    !normalized.startsWith(`..${sep}`)
+  );
+}
+
+function resolveWithin(root, candidate, description) {
+  if (!isSafeRelativePath(candidate)) {
+    throw new Error(`Refusing unsafe ${description}: ${candidate}`);
+  }
+
+  const rootPath = resolve(root);
+  // The candidate is validated as a non-absolute, non-traversing relative path
+  // before resolution, and the resolved result is checked again below.
+  const candidatePath = resolve(rootPath, candidate); // nosemgrep: path-join-resolve-traversal
+  const relativeCandidate = relative(rootPath, candidatePath);
+  if (!isSafeRelativePath(relativeCandidate)) {
+    throw new Error(`Resolved ${description} escaped its root: ${candidate}`);
+  }
+
+  return candidatePath;
+}
+
 function removeFiles(root, shouldRemove) {
   if (!existsSync(root)) return;
   for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
+    const path = resolveWithin(root, entry.name, 'directory entry');
     if (entry.isDirectory()) {
       removeFiles(path, shouldRemove);
     } else if (entry.isFile() && shouldRemove(entry.name)) {
@@ -80,7 +118,7 @@ const PRUNE_FILE_PATTERNS = [
 function pruneNodeModules(root) {
   if (!existsSync(root)) return;
   for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
+    const path = resolveWithin(root, entry.name, 'dependency entry');
     if (entry.isDirectory()) {
       if (PRUNE_DIRECTORIES.has(entry.name)) {
         rmSync(path, { recursive: true, force: true });
@@ -145,10 +183,10 @@ try {
     .map(p => p.trim());
   console.log(`  ${prodPaths.length} production packages`);
   for (const absPath of prodPaths) {
-    const relPath = absPath.slice(ROOT.length + 1);
-    const destPath = join(STAGING, relPath);
+    const relPath = relative(ROOT, absPath);
+    const destPath = resolveWithin(STAGING, relPath, 'dependency path');
     if (existsSync(absPath)) {
-      mkdirSync(join(destPath, '..'), { recursive: true });
+      mkdirSync(dirname(destPath), { recursive: true });
       cpSync(absPath, destPath, { recursive: true });
     }
   }
