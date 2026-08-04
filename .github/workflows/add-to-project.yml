@@ -9,4 +9,6 @@ on:
 jobs:
   call:
     uses: wyre-technology/.github/.github/workflows/auto-add-to-project.yml@6ae1533dd72f080d81b9842c22646d254b8d5e01  # pinned (warden C-4) — bump via PR not in-place edit
-    secrets: inherit
+    secrets:
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
