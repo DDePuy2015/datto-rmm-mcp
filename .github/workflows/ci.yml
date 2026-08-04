@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Type check
         run: npm run typecheck
@@ -80,14 +80,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # The Dockerfile takes GITHUB_TOKEN as a plain build ARG (not a
-          # BuildKit secret mount) so the same Dockerfile also works on
-          # one-click platforms like DigitalOcean App Platform that inject
-          # build-time env vars but don't support --mount=type=secret. This
-          # was never actually wired here — the step used to write a
-          # .npmrc.docker file and pass it via secret-files, which the
-          # Dockerfile never consumed (it only reads ${GITHUB_TOKEN}), so
-          # every image build failed npm ci with a 401. build-args is what
-          # the Dockerfile has always expected.
-          build-args: |
-            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          # The Dockerfile consumes this as a BuildKit secret.
+          # The package token is supplied through the BuildKit secret above.
+          secrets: |
+            github_token=${{ secrets.NODE_AUTH_TOKEN || secrets.GITHUB_TOKEN }}

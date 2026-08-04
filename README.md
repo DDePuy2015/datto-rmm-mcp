@@ -64,6 +64,14 @@ npm start
 The repo's `.npmrc` already points the `@wyre-technology` scope at GitHub Packages and
 reads the token from `NODE_AUTH_TOKEN`, so no further config is needed.
 
+### GitHub Actions
+
+Repository Actions must define a secret named `NODE_AUTH_TOKEN` containing a classic
+GitHub PAT with only `read:packages`. The CI and MCP assertion workflows use that
+secret for package installation. If it is absent, they fall back to the workflow
+`GITHUB_TOKEN`, which only works when the package owner has granted this repository
+package access.
+
 ## Configuration
 
 The server accepts credentials via environment variables:
@@ -114,9 +122,15 @@ Datto RMM uses regional API endpoints. Select the platform that matches your acc
 ## Docker
 
 ```bash
-docker build -t datto-rmm-mcp .
+export NODE_AUTH_TOKEN=$(gh auth token)   # or a PAT with read:packages
+DOCKER_BUILDKIT=1 docker build \
+  --secret id=github_token,env=NODE_AUTH_TOKEN \
+  -t datto-rmm-mcp .
 docker run -e DATTO_API_KEY=xxx -e DATTO_API_SECRET=xxx -e DATTO_PLATFORM=concord datto-rmm-mcp
 ```
+
+The package token is supplied as a BuildKit secret and is not included in image
+layers or build arguments.
 
 ## License
 
