@@ -26,7 +26,6 @@ jobs:
     with:
       server-name: datto-rmm-mcp
       image-name: ghcr.io/wyre-technology/datto-rmm-mcp
-    secrets: inherit
 
   deploy:
     needs: release
@@ -40,4 +39,7 @@ jobs:
       image-name: ghcr.io/wyre-technology/datto-rmm-mcp
       digest: ${{ needs.release.outputs.digest }}
       version: ${{ needs.release.outputs.version }}
-    secrets: inherit
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
