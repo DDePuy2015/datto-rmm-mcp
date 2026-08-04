@@ -20,6 +20,7 @@ import {
   DATTO_BACKEND_TOKEN_HEADER,
   validateBackendToken,
 } from "./backend-auth.js";
+import { runWithServerRef, bindServerRef } from "./utils/server-ref.js";
 
 // ---------------------------------------------------------------------------
 // Transport: stdio (default)
@@ -27,6 +28,10 @@ import {
 
 async function startStdioTransport(): Promise<void> {
   const server = createMcpServer();
+  // stdio is single-session (one process = one caller), so there is no
+  // concurrent tenant to isolate from — bind once for the process
+  // lifetime rather than per-request. See utils/server-ref.ts.
+  bindServerRef(server);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Datto RMM MCP server running on stdio");
@@ -132,18 +137,26 @@ async function startHttpTransport(): Promise<void> {
         server.close();
       });
 
-      server.connect(transport as unknown as Transport).then(() => {
-        transport.handleRequest(req, res);
-      }).catch((err) => {
-        console.error("MCP transport error:", err);
-        if (!res.headersSent) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            jsonrpc: "2.0",
-            error: { code: -32603, message: "Internal error" },
-            id: null,
-          }));
-        }
+      // Bind this request's server into the per-request async context (not
+      // a module-level global) so elicitation helpers resolve *this*
+      // server/transport even after await gaps, and never a concurrent
+      // request's — see utils/server-ref.ts. The whole connect/handleRequest
+      // chain, including the .catch(), must stay inside this callback so the
+      // bound context survives every await/then gap it spans.
+      runWithServerRef(server, () => {
+        server.connect(transport as unknown as Transport).then(() => {
+          transport.handleRequest(req, res);
+        }).catch((err) => {
+          console.error("MCP transport error:", err);
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              jsonrpc: "2.0",
+              error: { code: -32603, message: "Internal error" },
+              id: null,
+            }));
+          }
+        });
       });
 
       return;

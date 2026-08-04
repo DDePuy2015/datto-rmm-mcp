@@ -32,6 +32,7 @@ import {
   DATTO_BACKEND_TOKEN_HEADER,
   validateBackendToken,
 } from "./backend-auth.js";
+import { runWithServerRef } from "./utils/server-ref.js";
 
 export interface Env {
   DATTO_API_KEY?: string;
@@ -145,21 +146,28 @@ export default {
         credOverrides = credentialsFromEnv(env);
       }
 
-      // Fresh server + transport per request (stateless).
+      // Fresh server + transport per request (stateless). The server is
+      // bound to the per-request async context (not a module-level global)
+      // so elicitation helpers resolve *this* request's server even after
+      // await gaps, and never a concurrent request's — see
+      // utils/server-ref.ts.
       const server = createMcpServer(credOverrides);
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
       });
-      await server.connect(transport);
 
-      try {
-        const response = await transport.handleRequest(request);
-        return withCors(response);
-      } finally {
-        await transport.close();
-        await server.close();
-      }
+      return runWithServerRef(server, async () => {
+        await server.connect(transport);
+
+        try {
+          const response = await transport.handleRequest(request);
+          return withCors(response);
+        } finally {
+          await transport.close();
+          await server.close();
+        }
+      });
     }
 
     return json({ error: "Not found", endpoints: ["/mcp", "/health", "/ready"] }, 404);
