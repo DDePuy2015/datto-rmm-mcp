@@ -76,11 +76,14 @@ function isSafeRelativePath(candidate) {
 }
 
 function resolveWithin(root, candidate, description) {
+  if (typeof root !== 'string' || !isAbsolute(root)) {
+    throw new Error(`Refusing non-absolute ${description} root: ${root}`);
+  }
   if (!isSafeRelativePath(candidate)) {
     throw new Error(`Refusing unsafe ${description}: ${candidate}`);
   }
 
-  const rootPath = resolve(root);
+  const rootPath = normalize(root);
   // The candidate is validated as a non-absolute, non-traversing relative path
   // before resolution, and the resolved result is checked again below.
   const candidatePath = resolve(rootPath, candidate); // nosemgrep: path-join-resolve-traversal
