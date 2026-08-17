@@ -108,7 +108,8 @@ Datto RMM uses regional API endpoints. Select the platform that matches your acc
 
 | Tool | Description |
 |------|-------------|
-| `datto_list_devices` | List devices with optional site filter |
+| `datto_list_device_summaries` | **Recommended:** List compact device summaries with optional site, online, and last-seen filters |
+| `datto_list_devices` | **Full report:** Return raw device records; can consume a large amount of context/tokens |
 | `datto_find_device` | Find a device by hostname (exact or partial match) and resolve its UID |
 | `datto_get_device` | Get device details by UID |
 | `datto_list_alerts` | List open alerts with optional site filter |
@@ -119,6 +120,8 @@ Datto RMM uses regional API endpoints. Select the platform that matches your acc
 | `datto_run_quickjob` | Run a quick job on a device |
 | `datto_get_device_audit` | Get device audit data (full or software only) |
 
+For normal device inventory and status checks, use `datto_list_device_summaries`. It is the recommended compact response and supports site, online-state, and `lastSeenBefore` filters. `datto_list_devices` is intentionally a full raw provider report; it includes verbose fields such as UDFs and can consume a large amount of context/tokens.
+
 ## Docker
 
 ```bash
@@ -126,7 +129,11 @@ export NODE_AUTH_TOKEN=$(gh auth token)   # or a PAT with read:packages
 DOCKER_BUILDKIT=1 docker build \
   --secret id=github_token,env=NODE_AUTH_TOKEN \
   -t datto-rmm-mcp .
-docker run -e DATTO_API_KEY=xxx -e DATTO_API_SECRET=xxx -e DATTO_PLATFORM=concord datto-rmm-mcp
+docker run -p 8080:8080 \
+  -e DATTO_API_KEY=xxx \
+  -e DATTO_API_SECRET=xxx \
+  -e DATTO_PLATFORM=concord \
+  datto-rmm-mcp
 ```
 
 The package token is supplied as a BuildKit secret and is not included in image

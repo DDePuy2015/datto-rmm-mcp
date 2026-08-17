@@ -232,6 +232,127 @@ describe('Datto RMM MCP Server', () => {
       });
     });
 
+    describe('datto_list_device_summaries', () => {
+      async function callDeviceSummaries(args: Record<string, unknown>) {
+        process.env.DATTO_API_KEY = 'test-key';
+        process.env.DATTO_API_SECRET = 'test-secret';
+
+        const { createMcpServer } = await import('../src/mcp-server.js');
+        const { CallToolRequestSchema } = await import(
+          '@modelcontextprotocol/sdk/types.js'
+        );
+
+        createMcpServer();
+
+        const registration = mockSetRequestHandler.mock.calls.find(
+          ([schema]) => schema === CallToolRequestSchema
+        );
+        expect(registration).toBeDefined();
+        const handler = registration![1] as (request: {
+          params: { name: string; arguments: Record<string, unknown> };
+        }) => Promise<{
+          content: Array<{ type: string; text: string }>;
+          isError?: boolean;
+        }>;
+
+        return handler({
+          params: { name: 'datto_list_device_summaries', arguments: args },
+        });
+      }
+
+      it('should return compact fields and exclude verbose device data', async () => {
+        mockSitesDevicesAll.mockReturnValue(
+          createAsyncGenerator([
+            {
+              uid: 'device-summary-1',
+              hostname: 'WORKSTATION-01',
+              siteUid: 'site-123',
+              siteName: 'Main Office',
+              deviceType: { category: 'Desktop', type: 'Desktop' },
+              operatingSystem: 'Microsoft Windows 11 Pro',
+              online: false,
+              lastSeen: 1704067200000,
+              intIpAddress: '10.0.0.10',
+              lastLoggedInUser: 'DOMAIN\\user',
+              udf: { udf1: 'sensitive value' },
+              portalUrl: 'https://example.invalid/device/device-summary-1',
+              rebootRequired: true,
+              suspended: false,
+              deleted: false,
+              softwareStatus: 'Compliant',
+              patchManagement: { patchStatus: 'FullyPatched' },
+              antivirus: { antivirusStatus: 'RunningAndUpToDate' },
+            },
+          ])
+        );
+
+        const result = await callDeviceSummaries({
+          siteUid: 'site-123',
+          online: false,
+          lastSeenBefore: '2025-01-01T00:00:00Z',
+        });
+
+        expect(result.isError).toBeUndefined();
+        expect(mockSitesDevicesAll).toHaveBeenCalledWith('site-123');
+
+        const payload = JSON.parse(result.content[0].text);
+        expect(payload.count).toBe(1);
+        expect(payload.truncated).toBe(false);
+        expect(payload.devices[0]).toEqual({
+          uid: 'device-summary-1',
+          hostname: 'WORKSTATION-01',
+          siteUid: 'site-123',
+          siteName: 'Main Office',
+          deviceType: { category: 'Desktop', type: 'Desktop' },
+          operatingSystem: 'Microsoft Windows 11 Pro',
+          online: false,
+          lastSeen: 1704067200000,
+          lastSeenAt: '2024-01-01T00:00:00.000Z',
+          rebootRequired: true,
+          suspended: false,
+          deleted: false,
+          softwareStatus: 'Compliant',
+          patchStatus: 'FullyPatched',
+          antivirusStatus: 'RunningAndUpToDate',
+        });
+        expect(payload.devices[0].intIpAddress).toBeUndefined();
+        expect(payload.devices[0].lastLoggedInUser).toBeUndefined();
+        expect(payload.devices[0].udf).toBeUndefined();
+        expect(payload.devices[0].portalUrl).toBeUndefined();
+      });
+
+      it('should report when the compact result is capped by max', async () => {
+        mockAccountDevicesAll.mockReturnValue(
+          createAsyncGenerator([
+            { uid: 'device-1', hostname: 'DEVICE-01', online: false },
+            { uid: 'device-2', hostname: 'DEVICE-02', online: false },
+          ])
+        );
+
+        const result = await callDeviceSummaries({ max: 1, online: false });
+        const payload = JSON.parse(result.content[0].text);
+
+        expect(payload.count).toBe(1);
+        expect(payload.truncated).toBe(true);
+      });
+
+      it('should reject invalid summary filters', async () => {
+        const invalidMax = await callDeviceSummaries({ max: 101 });
+        expect(invalidMax.isError).toBe(true);
+        expect(invalidMax.content[0].text).toContain(
+          'max must be an integer between 1 and 100'
+        );
+
+        const invalidDate = await callDeviceSummaries({
+          lastSeenBefore: 'not-a-date',
+        });
+        expect(invalidDate.isError).toBe(true);
+        expect(invalidDate.content[0].text).toContain(
+          'lastSeenBefore must be a valid ISO 8601 timestamp'
+        );
+      });
+    });
+
     describe('datto_get_device', () => {
       it('should return device details for valid deviceUid', async () => {
         const mockDevice = {
@@ -770,6 +891,7 @@ describe('Datto RMM MCP Server', () => {
   describe('Tool Definitions', () => {
     const expectedTools = [
       'datto_list_devices',
+      'datto_list_device_summaries',
       'datto_find_device',
       'datto_get_device',
       'datto_list_alerts',
@@ -780,12 +902,13 @@ describe('Datto RMM MCP Server', () => {
       'datto_get_device_audit',
     ];
 
-    it('should define all 9 tools', () => {
-      expect(expectedTools).toHaveLength(9);
+    it('should define all 10 tools', () => {
+      expect(expectedTools).toHaveLength(10);
     });
 
     it('should include device management tools', () => {
       expect(expectedTools).toContain('datto_list_devices');
+      expect(expectedTools).toContain('datto_list_device_summaries');
       expect(expectedTools).toContain('datto_find_device');
       expect(expectedTools).toContain('datto_get_device');
       expect(expectedTools).toContain('datto_get_device_audit');
