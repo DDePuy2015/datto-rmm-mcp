@@ -135,6 +135,28 @@ async function collectItems<T>(
   return items;
 }
 
+async function collectMatchingItems<T>(
+  iterable: AsyncIterable<T>,
+  predicate: (item: T) => boolean,
+  max: number
+): Promise<{ items: T[]; truncated: boolean }> {
+  const items: T[] = [];
+
+  for await (const item of iterable) {
+    if (!predicate(item)) continue;
+
+    // Read one additional matching item so callers can distinguish a complete
+    // result from a result capped by the requested max.
+    if (items.length >= max) {
+      return { items, truncated: true };
+    }
+
+    items.push(item);
+  }
+
+  return { items, truncated: false };
+}
+
 // ---------------------------------------------------------------------------
 // Hostname lookup helper
 // ---------------------------------------------------------------------------
@@ -159,9 +181,25 @@ interface DeviceSearchQuery {
  */
 type RawDevice = Device & {
   online?: boolean;
+  isOnline?: boolean;
   lastSeen?: number | string;
+  lastSeenAt?: number | string;
   intIpAddress?: string;
   portalUrl?: string;
+  deviceType?: {
+    category?: string;
+    type?: string;
+  };
+  rebootRequired?: boolean;
+  suspended?: boolean;
+  deleted?: boolean;
+  softwareStatus?: string;
+  patchManagement?: {
+    patchStatus?: string;
+  };
+  antivirus?: {
+    antivirusStatus?: string;
+  };
 };
 
 /** Lightweight device summary returned by datto_find_device. */
@@ -175,6 +213,81 @@ export interface DeviceMatch {
   operatingSystem?: string;
   lastSeen?: number | string;
   portalUrl?: string;
+}
+
+/** Compact operational record returned by datto_list_device_summaries. */
+export interface DeviceSummary {
+  uid: string;
+  hostname?: string;
+  siteUid?: string;
+  siteName?: string;
+  deviceType?: {
+    category?: string;
+    type?: string;
+  };
+  operatingSystem?: string;
+  online?: boolean;
+  lastSeen?: number | string;
+  lastSeenAt?: string;
+  rebootRequired?: boolean;
+  suspended?: boolean;
+  deleted?: boolean;
+  softwareStatus?: string;
+  patchStatus?: string;
+  antivirusStatus?: string;
+}
+
+function lastSeenValue(device: RawDevice): number | string | undefined {
+  return device.lastSeen ?? device.lastSeenAt;
+}
+
+function timestampMs(value: number | string | undefined): number | undefined {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  if (typeof value !== "string" || !value.trim()) return undefined;
+
+  const numericValue = Number(value);
+  if (Number.isFinite(numericValue)) return numericValue;
+
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function summaryForDevice(device: Device): DeviceSummary {
+  const raw = device as RawDevice;
+  const lastSeen = lastSeenValue(raw);
+  const lastSeenMs = timestampMs(lastSeen);
+
+  return {
+    uid: device.uid,
+    hostname: device.hostname,
+    siteUid: device.siteUid,
+    siteName: device.siteName,
+    deviceType: raw.deviceType,
+    operatingSystem: device.operatingSystem,
+    online: raw.online ?? raw.isOnline,
+    lastSeen,
+    lastSeenAt:
+      lastSeenMs === undefined ? undefined : new Date(lastSeenMs).toISOString(),
+    rebootRequired: raw.rebootRequired,
+    suspended: raw.suspended,
+    deleted: raw.deleted,
+    softwareStatus: raw.softwareStatus,
+    patchStatus: raw.patchManagement?.patchStatus,
+    antivirusStatus: raw.antivirus?.antivirusStatus,
+  };
+}
+
+function validDeviceLimit(
+  value: number | undefined,
+  defaultValue: number,
+  maximum: number
+): number | undefined {
+  if (value === undefined) return defaultValue;
+  if (!Number.isInteger(value) || value < 1 || value > maximum) return undefined;
+  return value;
 }
 
 export async function findDevicesByHostname(
@@ -246,7 +359,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         {
           name: "datto_list_devices",
           description:
-            "List all devices in Datto RMM. Can filter by site. To look up a single device by hostname, use datto_find_device instead.",
+            "FULL REPORT (large/token-heavy): Return raw Datto device records, including UDFs, network fields, users, URLs, and management details. Use only when the complete provider payload is explicitly required. For normal inventory or status work, use the recommended datto_list_device_summaries tool instead.",
           inputSchema: {
             type: "object",
             properties: {
@@ -257,8 +370,42 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
               },
               max: {
                 type: "number",
-                description: "Maximum number of results (default: 50)",
+                description:
+                  "Maximum number of raw device records (default: 50). Full reports can consume a large amount of context/tokens.",
                 default: 50,
+              },
+            },
+          },
+        },
+        {
+          name: "datto_list_device_summaries",
+          description:
+            "RECOMMENDED: List compact operational device summaries. Returns only identity, site, type, OS, online state, last seen timestamp, and basic health/compliance fields; excludes UDFs, IPs, users, and remote URLs. Supports filtering by site, online state, and lastSeenBefore.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              siteUid: {
+                type: "string",
+                description:
+                  "Filter devices by site UID (optional - if omitted, returns account devices)",
+              },
+              online: {
+                type: "boolean",
+                description:
+                  "Optional online-state filter. Set false with lastSeenBefore to find stale/offline devices.",
+              },
+              lastSeenBefore: {
+                type: "string",
+                description:
+                  "Optional ISO 8601 timestamp. Return devices whose lastSeen is earlier than this value.",
+              },
+              max: {
+                type: "number",
+                description:
+                  "Maximum number of compact summaries to return (default: 50, maximum: 100)",
+                default: 50,
+                maximum: 100,
+                minimum: 1,
               },
             },
           },
@@ -532,6 +679,88 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           return {
             content: [
               { type: "text", text: JSON.stringify(devices ?? [], null, 2) },
+            ],
+          };
+        }
+
+        case "datto_list_device_summaries": {
+          const params = args as {
+            siteUid?: string;
+            online?: boolean;
+            lastSeenBefore?: string;
+            max?: number;
+          };
+          const max = validDeviceLimit(params.max, 50, 100);
+
+          if (max === undefined) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "Error: max must be an integer between 1 and 100",
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          let lastSeenBeforeMs: number | undefined;
+          if (params.lastSeenBefore !== undefined) {
+            lastSeenBeforeMs = Date.parse(params.lastSeenBefore);
+            if (Number.isNaN(lastSeenBeforeMs)) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      "Error: lastSeenBefore must be a valid ISO 8601 timestamp",
+                  },
+                ],
+                isError: true,
+              };
+            }
+          }
+
+          const matches = (device: Device): boolean => {
+            const raw = device as RawDevice;
+            const deviceOnline = raw.online ?? raw.isOnline;
+
+            if (
+              params.online !== undefined &&
+              deviceOnline !== params.online
+            ) {
+              return false;
+            }
+
+            if (lastSeenBeforeMs !== undefined) {
+              const seenAt = timestampMs(lastSeenValue(raw));
+              if (seenAt === undefined || seenAt >= lastSeenBeforeMs) {
+                return false;
+              }
+            }
+
+            return true;
+          };
+
+          const devices = params.siteUid
+            ? client.sites.devicesAll(params.siteUid)
+            : client.account.devicesAll();
+          const result = await collectMatchingItems(devices, matches, max);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    count: result.items.length,
+                    truncated: result.truncated,
+                    devices: result.items.map(summaryForDevice),
+                  },
+                  null,
+                  2
+                ),
+              },
             ],
           };
         }

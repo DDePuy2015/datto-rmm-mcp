@@ -47,6 +47,11 @@ updates:
         update-types: ["minor", "patch"]
     # Production MAJORS are intentionally NOT grouped → individual PRs, held for
     # human review (never auto-merged).
+    ignore:
+      # TypeScript 7 is not compatible with the current TypeScript ESLint and
+      # build toolchain. Hold major bumps until the fleet supports them.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
