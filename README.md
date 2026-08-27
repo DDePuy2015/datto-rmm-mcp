@@ -2,6 +2,22 @@
 
 MCP server for Datto RMM, enabling Claude to interact with your Datto RMM account.
 
+> [!NOTE]
+> WYRE migrated its public organization identity from @wyre-technology to
+> WYRE-AI. The published MCP package, MCP Registry identity, and public GHCR
+> image therefore changed from
+> @wyre-technology/datto-rmm-mcp,
+> io.github.wyre-technology/datto-rmm-mcp, and
+> ghcr.io/wyre-technology/datto-rmm-mcp to
+> @wyre-ai/datto-rmm-mcp, io.github.WYRE-AI/datto-rmm-mcp, and
+> ghcr.io/wyre-ai/datto-rmm-mcp.
+>
+> Existing consumers should update their package, registry, or image
+> configuration. The runtime SDK dependency remains
+> @wyre-technology/node-datto-rmm and must continue using the legacy scope.
+> Summit's Azure deployment uses its own immutable ACR image and is not
+> affected by the public GHCR namespace change.
+
 ## One-Click Deployment
 
 > [!IMPORTANT]
@@ -21,16 +37,16 @@ MCP server for Datto RMM, enabling Claude to interact with your Datto RMM accoun
 >    - **DigitalOcean App Platform** → set an encrypted env var named **`GITHUB_TOKEN`**
 >      with scope **Build Time** to your PAT (the `.do/deploy.template.yaml` already declares it).
 
-[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/wyre-technology/datto-rmm-mcp/tree/main)
+[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/WYRE-AI/datto-rmm-mcp/tree/main)
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wyre-technology/datto-rmm-mcp)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/WYRE-AI/datto-rmm-mcp)
 
 > [!NOTE]
 > The DigitalOcean target builds the full Docker image and runs the complete MCP
 > server over HTTP — this is the recommended path for operators. This repo has no
 > Cloudflare Workers entrypoint (`src/worker.ts`), so the Workers button is not a
 > supported target yet; prefer DigitalOcean or the prebuilt container image
-> (`ghcr.io/wyre-technology/datto-rmm-mcp`).
+> (`ghcr.io/wyre-ai/datto-rmm-mcp`).
 
 ## Features
 
@@ -61,8 +77,9 @@ npm run build
 npm start
 ```
 
-The repo's `.npmrc` already points the `@wyre-technology` scope at GitHub Packages and
-reads the token from `NODE_AUTH_TOKEN`, so no further config is needed.
+The repo's `.npmrc` points both the `@wyre-ai` package scope and the legacy
+`@wyre-technology` SDK scope at GitHub Packages and reads the token from
+`NODE_AUTH_TOKEN`, so no further config is needed.
 
 ### GitHub Actions
 
