@@ -17,7 +17,8 @@ COPY package*.json ./
 # The build caller must provide a secret named `github_token`.
 RUN --mount=type=secret,id=github_token \
     set -eu; \
-    echo "@wyre-technology:registry=https://npm.pkg.github.com" > .npmrc; \
+    echo "@wyre-ai:registry=https://npm.pkg.github.com" > .npmrc; \
+    echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc; \
     echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/github_token)" >> .npmrc; \
     npm ci --ignore-scripts; \
     rm -f .npmrc
@@ -31,7 +32,8 @@ RUN npm run build
 # Prune dev dependencies in the builder stage with the same temporary secret.
 RUN --mount=type=secret,id=github_token \
     set -eu; \
-    echo "@wyre-technology:registry=https://npm.pkg.github.com" > .npmrc; \
+    echo "@wyre-ai:registry=https://npm.pkg.github.com" > .npmrc; \
+    echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc; \
     echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/github_token)" >> .npmrc; \
     npm prune --omit=dev; \
     rm -f .npmrc
@@ -92,9 +94,9 @@ LABEL org.opencontainers.image.description="Model Context Protocol server for Da
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
-LABEL org.opencontainers.image.source="https://github.com/wyre-technology/datto-rmm-mcp"
-LABEL org.opencontainers.image.documentation="https://github.com/wyre-technology/datto-rmm-mcp/blob/main/README.md"
-LABEL org.opencontainers.image.url="https://github.com/wyre-technology/datto-rmm-mcp/pkgs/container/datto-rmm-mcp"
+LABEL org.opencontainers.image.source="https://github.com/WYRE-AI/datto-rmm-mcp"
+LABEL org.opencontainers.image.documentation="https://github.com/WYRE-AI/datto-rmm-mcp/blob/main/README.md"
+LABEL org.opencontainers.image.url="https://github.com/WYRE-AI/datto-rmm-mcp/pkgs/container/datto-rmm-mcp"
 LABEL org.opencontainers.image.vendor="Wyre Technology"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL io.modelcontextprotocol.server.name="io.github.wyre-technology/datto-rmm-mcp"
+LABEL io.modelcontextprotocol.server.name="io.github.WYRE-AI/datto-rmm-mcp"
