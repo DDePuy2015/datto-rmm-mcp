@@ -13,6 +13,8 @@ on:
 # is each repo's ci.yml concern; this workflow only runs the release path.
 # Caller jobs grant the token scopes the reusable jobs request (a reusable can
 # only reduce, never expand, caller-granted scope).
+# Do not use `secrets: inherit` here. Summit Azure and other repository secrets
+# must not be exposed to the provider-managed release workflow.
 jobs:
   release:
     permissions:
@@ -22,7 +24,7 @@ jobs:
       packages: write
       id-token: write
       security-events: write
-    uses: WYRE-AI/.github/.github/workflows/mcp-server-release.yml@07bc1921cbd01ad8a079fe8a3dd28180080870d5
+    uses: WYRE-AI/.github/.github/workflows/mcp-server-release.yml@8c2360058e882a8afacfc4cebf840135789ef406
     with:
       server-name: datto-rmm-mcp
       image-name: ghcr.io/wyre-ai/datto-rmm-mcp
@@ -41,7 +43,7 @@ jobs:
   #   permissions:
   #     id-token: write
   #     contents: read
-  #   uses: WYRE-AI/.github/.github/workflows/mcp-server-deploy.yml@07bc1921cbd01ad8a079fe8a3dd28180080870d5
+  #   uses: WYRE-AI/.github/.github/workflows/mcp-server-deploy.yml@8c2360058e882a8afacfc4cebf840135789ef406
   #   with:
   #     vendor-slug: datto-rmm
   #     image-name: ghcr.io/wyre-ai/datto-rmm-mcp
