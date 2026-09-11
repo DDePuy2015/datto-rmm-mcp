@@ -14,8 +14,9 @@ MCP server for Datto RMM, enabling Claude to interact with your Datto RMM accoun
 >
 > Existing consumers should update their package, registry, or image
 > configuration. The runtime SDK dependency is now
-> @wyre-ai/node-datto-rmm. The legacy @wyre-technology registry mapping is
-> retained only for packages that have not yet migrated.
+> @wyre-ai/node-datto-rmm. Consumers should remove the old
+> `@wyre-technology/node-datto-rmm` dependency and registry mapping; retain
+> that scope only if another explicitly required package still uses it.
 > Summit's Azure deployment uses its own immutable ACR image and is not
 > affected by the public GHCR namespace change.
 
@@ -31,7 +32,7 @@ MCP server for Datto RMM, enabling Claude to interact with your Datto RMM accoun
 > 1. Create a GitHub **Personal Access Token** with the `read:packages` scope
 >    ([classic token](https://github.com/settings/tokens/new?scopes=read:packages&description=datto-rmm-mcp%20deploy)).
 >    Any GitHub account works — you do **not** need to be a member of the
->    `wyre-technology` org to read its public packages.
+>    `WYRE-AI` org to read its public packages.
 > 2. Add it as a build variable when prompted by the deploy flow:
 >    - **Cloudflare Workers** → set a build variable named **`NODE_AUTH_TOKEN`** to your PAT
 >      (Workers → Settings → Build → Variables and Secrets).
@@ -79,8 +80,8 @@ npm start
 ```
 
 The repo's `.npmrc` points the `@wyre-ai` package scope at GitHub Packages and
-retains the legacy `@wyre-technology` scope for transition-only dependencies.
-Both use the token from `NODE_AUTH_TOKEN`, so no further config is needed.
+reads the token from `NODE_AUTH_TOKEN`, so no further config is needed. Add a
+legacy scope mapping only when a future required dependency explicitly needs it.
 
 ### GitHub Actions
 

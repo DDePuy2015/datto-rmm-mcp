@@ -21,7 +21,6 @@ jobs:
           node-version: '22.22.2'
           cache: 'npm'
           registry-url: 'https://npm.pkg.github.com'
-          scope: '@wyre-ai'
 
       - name: Install dependencies
         run: npm ci

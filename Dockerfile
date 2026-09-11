@@ -18,7 +18,6 @@ COPY package*.json ./
 RUN --mount=type=secret,id=github_token \
     set -eu; \
     echo "@wyre-ai:registry=https://npm.pkg.github.com" > .npmrc; \
-    echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc; \
     echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/github_token)" >> .npmrc; \
     npm ci --ignore-scripts; \
     rm -f .npmrc
@@ -33,7 +32,6 @@ RUN npm run build
 RUN --mount=type=secret,id=github_token \
     set -eu; \
     echo "@wyre-ai:registry=https://npm.pkg.github.com" > .npmrc; \
-    echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc; \
     echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/github_token)" >> .npmrc; \
     npm prune --omit=dev; \
     rm -f .npmrc
