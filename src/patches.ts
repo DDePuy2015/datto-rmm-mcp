@@ -222,5 +222,5 @@ export function getSitePatches(
   creds: DattoCredentials,
   siteUid: string
 ): Promise<PatchesResponse> {
-  return fetchPatches(creds, `/v2/sites/${encodeURIComponent(siteUid)}/patches`);
+  return fetchPatches(creds, `/v2/site/${encodeURIComponent(siteUid)}/patches`);
 }

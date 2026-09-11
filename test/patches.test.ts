@@ -78,7 +78,7 @@ describe("Datto patch reports", () => {
     expect(urls).toEqual([
       "https://syrah-api.centrastage.net/auth/oauth/token",
       "https://syrah-api.centrastage.net/api/v2/device/device%2Fwith%20spaces/patches",
-      "https://syrah-api.centrastage.net/api/v2/sites/site%2Fwith%20spaces/patches",
+      "https://syrah-api.centrastage.net/api/v2/site/site%2Fwith%20spaces/patches",
     ]);
   });
 
