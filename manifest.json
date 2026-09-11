@@ -5,7 +5,7 @@
   "version": "0.0.0",
   "description": "MCP server for Datto RMM - access devices, sites, alerts, and jobs through AI assistants",
   "long_description": "Provides AI assistants with structured access to your Datto RMM data. Manage devices, sites, alerts, jobs, and components through the Model Context Protocol.",
-  "author": { "name": "Wyre Technology", "url": "https://github.com/WYRE-AI" },
+  "author": { "name": "WYRE-AI", "url": "https://github.com/WYRE-AI" },
   "repository": { "type": "git", "url": "https://github.com/WYRE-AI/datto-rmm-mcp" },
   "homepage": "https://github.com/WYRE-AI/datto-rmm-mcp",
   "license": "Apache-2.0",
@@ -25,5 +25,5 @@
     "datto_api_secret": { "type": "string", "title": "Datto RMM API Secret", "description": "Your Datto RMM API secret", "sensitive": true, "required": true },
     "datto_platform": { "type": "string", "title": "Datto Platform", "description": "Platform region: pinotage, merlot, concord, vidal, zinfandel, or syrah", "sensitive": false, "required": false }
   },
-  "compatibility": { "platforms": ["darwin", "win32", "linux"], "runtimes": { "node": ">=18.0.0" }, "claude_desktop": ">=0.10.0" }
+  "compatibility": { "platforms": ["darwin", "win32", "linux"], "runtimes": { "node": ">=22.0.0" }, "claude_desktop": ">=0.10.0" }
 }

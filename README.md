@@ -13,15 +13,16 @@ MCP server for Datto RMM, enabling Claude to interact with your Datto RMM accoun
 > ghcr.io/wyre-ai/datto-rmm-mcp.
 >
 > Existing consumers should update their package, registry, or image
-> configuration. The runtime SDK dependency remains
-> @wyre-technology/node-datto-rmm and must continue using the legacy scope.
+> configuration. The runtime SDK dependency is now
+> @wyre-ai/node-datto-rmm. The legacy @wyre-technology registry mapping is
+> retained only for packages that have not yet migrated.
 > Summit's Azure deployment uses its own immutable ACR image and is not
 > affected by the public GHCR namespace change.
 
 ## One-Click Deployment
 
 > [!IMPORTANT]
-> **Before you click:** this server depends on `@wyre-technology/node-datto-rmm`,
+> **Before you click:** this server depends on `@wyre-ai/node-datto-rmm`,
 > which is hosted on the **GitHub Packages** npm registry. GitHub Packages has no
 > anonymous access — even though the package is public, every `npm install` needs a
 > token. The cloud builder runs `npm install` for you, so you must give it one, or
@@ -65,7 +66,7 @@ This server is designed to work with the [MCP Gateway](https://github.com/wyre-t
 
 ### Local Development
 
-This server's `@wyre-technology/*` dependencies live on the **GitHub Packages** npm
+This server's `@wyre-ai/*` dependencies live on the **GitHub Packages** npm
 registry, which requires a token even for public packages. Authenticate once, then install:
 
 ```bash
@@ -77,9 +78,9 @@ npm run build
 npm start
 ```
 
-The repo's `.npmrc` points both the `@wyre-ai` package scope and the legacy
-`@wyre-technology` SDK scope at GitHub Packages and reads the token from
-`NODE_AUTH_TOKEN`, so no further config is needed.
+The repo's `.npmrc` points the `@wyre-ai` package scope at GitHub Packages and
+retains the legacy `@wyre-technology` scope for transition-only dependencies.
+Both use the token from `NODE_AUTH_TOKEN`, so no further config is needed.
 
 ### GitHub Actions
 
@@ -129,15 +130,21 @@ Datto RMM uses regional API endpoints. Select the platform that matches your acc
 | `datto_list_devices` | **Full report:** Return raw device records; can consume a large amount of context/tokens |
 | `datto_find_device` | Find a device by hostname (exact or partial match) and resolve its UID |
 | `datto_get_device` | Get device details by UID |
+| `datto_get_device_patches` | Get a targeted read-only Windows patch-compliance report for one device |
 | `datto_list_alerts` | List open alerts with optional site filter |
 | `datto_get_alert` | Get alert details by UID (renders as an interactive card in MCP Apps hosts) |
 | `datto_resolve_alert` | Resolve an alert |
 | `datto_list_sites` | List all sites |
 | `datto_get_site` | Get site details |
+| `datto_get_site_patches` | **Full report:** Get patch compliance for every device in a site; may consume substantial context/tokens |
 | `datto_run_quickjob` | Run a quick job on a device |
 | `datto_get_device_audit` | Get device audit data (full or software only) |
 
 For normal device inventory and status checks, use `datto_list_device_summaries`. It is the recommended compact response and supports site, online-state, and `lastSeenBefore` filters. `datto_list_devices` is intentionally a full raw provider report; it includes verbose fields such as UDFs and can consume a large amount of context/tokens.
+
+For patch compliance, use `datto_get_device_patches` for a targeted device
+report. `datto_get_site_patches` is a full site-wide report and can be large;
+call it only when site-wide patch data is explicitly required.
 
 ## Docker
 
