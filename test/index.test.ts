@@ -15,7 +15,7 @@ const mockAccountDevicesAll = vi.fn();
 const mockAccountSitesAll = vi.fn();
 const mockAccountAlertsOpenAll = vi.fn();
 
-vi.mock('@wyre-technology/node-datto-rmm', () => ({
+vi.mock('@wyre-ai/node-datto-rmm', () => ({
   // A regular function (not an arrow function) so it can be invoked with `new`
   DattoRmmClient: vi.fn().mockImplementation(function () {
     return {
@@ -894,16 +894,18 @@ describe('Datto RMM MCP Server', () => {
       'datto_list_device_summaries',
       'datto_find_device',
       'datto_get_device',
+      'datto_get_device_patches',
       'datto_list_alerts',
       'datto_resolve_alert',
       'datto_list_sites',
       'datto_get_site',
+      'datto_get_site_patches',
       'datto_run_quickjob',
       'datto_get_device_audit',
     ];
 
-    it('should define all 10 tools', () => {
-      expect(expectedTools).toHaveLength(10);
+    it('should define all 12 tools', () => {
+      expect(expectedTools).toHaveLength(12);
     });
 
     it('should include device management tools', () => {
@@ -911,12 +913,14 @@ describe('Datto RMM MCP Server', () => {
       expect(expectedTools).toContain('datto_list_device_summaries');
       expect(expectedTools).toContain('datto_find_device');
       expect(expectedTools).toContain('datto_get_device');
+      expect(expectedTools).toContain('datto_get_device_patches');
       expect(expectedTools).toContain('datto_get_device_audit');
     });
 
     it('should include site management tools', () => {
       expect(expectedTools).toContain('datto_list_sites');
       expect(expectedTools).toContain('datto_get_site');
+      expect(expectedTools).toContain('datto_get_site_patches');
     });
 
     it('should include alert management tools', () => {
@@ -926,6 +930,33 @@ describe('Datto RMM MCP Server', () => {
 
     it('should include job management tools', () => {
       expect(expectedTools).toContain('datto_run_quickjob');
+    });
+
+    it('should advertise targeted device and large site patch reports', async () => {
+      const { createMcpServer } = await import('../src/mcp-server.js');
+      const { ListToolsRequestSchema } = await import(
+        '@modelcontextprotocol/sdk/types.js'
+      );
+
+      createMcpServer();
+      const registration = mockSetRequestHandler.mock.calls.find(
+        ([schema]) => schema === ListToolsRequestSchema
+      );
+      expect(registration).toBeDefined();
+
+      const result = await (registration![1] as () => Promise<{
+        tools: Array<{ name: string; description: string }>;
+      }>)();
+      const devicePatches = result.tools.find(
+        (tool) => tool.name === 'datto_get_device_patches'
+      );
+      const sitePatches = result.tools.find(
+        (tool) => tool.name === 'datto_get_site_patches'
+      );
+
+      expect(devicePatches?.description).toContain('targeted');
+      expect(sitePatches?.description).toContain('FULL REPORT');
+      expect(sitePatches?.description).toContain('context/tokens');
     });
   });
 

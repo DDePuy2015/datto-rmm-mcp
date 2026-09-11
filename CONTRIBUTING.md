@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in contributing! This project is maintained by [WYRE Technology](https://github.com/WYRE-AI).
+Thank you for your interest in contributing! This project is maintained by [WYRE-AI](https://github.com/WYRE-AI).
 
 ## Getting Started
 

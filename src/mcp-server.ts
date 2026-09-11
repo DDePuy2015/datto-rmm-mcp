@@ -21,7 +21,8 @@ import {
   DattoRmmClient,
   type Device,
   type Platform,
-} from "@wyre-technology/node-datto-rmm";
+} from "@wyre-ai/node-datto-rmm";
+import { getDevicePatches, getSitePatches } from "./patches.js";
 import { elicitSelection } from "./utils/elicitation.js";
 import {
   ALERT_CARD_META,
@@ -458,6 +459,21 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           },
         },
         {
+          name: "datto_get_device_patches",
+          description:
+            "Get the Windows patch-compliance report for one device by UID. This is a read-only report of installed, missing, and pending patches. Use this targeted tool for a single device; the site-wide report can be much larger.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              deviceUid: {
+                type: "string",
+                description: "The Datto RMM device UID",
+              },
+            },
+            required: ["deviceUid"],
+          },
+        },
+        {
           name: "datto_list_alerts",
           description: "List open alerts. Can filter by site.",
           inputSchema: {
@@ -529,6 +545,21 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
               siteUid: {
                 type: "string",
                 description: "The site UID",
+              },
+            },
+            required: ["siteUid"],
+          },
+        },
+        {
+          name: "datto_get_site_patches",
+          description:
+            "FULL REPORT (potentially large): Get the Windows patch-compliance report for every device in a site by site UID. This can return a large amount of data and consume substantial context/tokens. Use datto_get_device_patches for a targeted device report when possible.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              siteUid: {
+                type: "string",
+                description: "The Datto RMM site UID",
               },
             },
             required: ["siteUid"],
@@ -835,6 +866,21 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           };
         }
 
+        case "datto_get_device_patches": {
+          const { deviceUid } = (args ?? {}) as { deviceUid?: unknown };
+          if (typeof deviceUid !== "string" || !deviceUid.trim()) {
+            return {
+              content: [{ type: "text", text: "Error: deviceUid must not be empty" }],
+              isError: true,
+            };
+          }
+
+          const patches = await getDevicePatches(creds, deviceUid);
+          return {
+            content: [{ type: "text", text: JSON.stringify(patches, null, 2) }],
+          };
+        }
+
         case "datto_list_alerts": {
           const params = args as { siteUid?: string; max?: number };
           const max = params.max || 50;
@@ -917,6 +963,21 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           const site = await client.sites.get(siteUid);
           return {
             content: [{ type: "text", text: JSON.stringify(site, null, 2) }],
+          };
+        }
+
+        case "datto_get_site_patches": {
+          const { siteUid } = (args ?? {}) as { siteUid?: unknown };
+          if (typeof siteUid !== "string" || !siteUid.trim()) {
+            return {
+              content: [{ type: "text", text: "Error: siteUid must not be empty" }],
+              isError: true,
+            };
+          }
+
+          const patches = await getSitePatches(creds, siteUid);
+          return {
+            content: [{ type: "text", text: JSON.stringify(patches, null, 2) }],
           };
         }
 

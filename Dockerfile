@@ -18,7 +18,6 @@ COPY package*.json ./
 RUN --mount=type=secret,id=github_token \
     set -eu; \
     echo "@wyre-ai:registry=https://npm.pkg.github.com" > .npmrc; \
-    echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc; \
     echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/github_token)" >> .npmrc; \
     npm ci --ignore-scripts; \
     rm -f .npmrc
@@ -33,7 +32,6 @@ RUN npm run build
 RUN --mount=type=secret,id=github_token \
     set -eu; \
     echo "@wyre-ai:registry=https://npm.pkg.github.com" > .npmrc; \
-    echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc; \
     echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/github_token)" >> .npmrc; \
     npm prune --omit=dev; \
     rm -f .npmrc
@@ -97,6 +95,6 @@ LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
 LABEL org.opencontainers.image.source="https://github.com/WYRE-AI/datto-rmm-mcp"
 LABEL org.opencontainers.image.documentation="https://github.com/WYRE-AI/datto-rmm-mcp/blob/main/README.md"
 LABEL org.opencontainers.image.url="https://github.com/WYRE-AI/datto-rmm-mcp/pkgs/container/datto-rmm-mcp"
-LABEL org.opencontainers.image.vendor="Wyre Technology"
+LABEL org.opencontainers.image.vendor="WYRE-AI"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL io.modelcontextprotocol.server.name="io.github.WYRE-AI/datto-rmm-mcp"
