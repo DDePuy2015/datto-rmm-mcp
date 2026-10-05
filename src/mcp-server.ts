@@ -21,6 +21,7 @@ import {
   DattoRmmClient,
   type Device,
   type Platform,
+  type QuickJobRequest,
 } from "@wyre-ai/node-datto-rmm";
 import { getDevicePatches, getSitePatches } from "./patches.js";
 import { elicitSelection } from "./utils/elicitation.js";
@@ -52,6 +53,10 @@ const VALID_PLATFORMS: Platform[] = [
   "zinfandel",
   "syrah",
 ];
+
+// Reviewed by the Summit proxy as the direct Operator connectivity action.
+const CONNECTIVITY_CHECK_COMPONENT_UID =
+  "a2e06e6f-905f-4828-820c-8ff2f2d772da";
 
 /**
  * Resolve a platform string to a valid Platform, defaulting to "concord".
@@ -330,6 +335,24 @@ export async function findDevicesByHostname(
 }
 
 // ---------------------------------------------------------------------------
+// Quick job payload shape
+// ---------------------------------------------------------------------------
+
+/**
+ * Datto RMM rejects the flat quick-job body declared by the published
+ * @wyre-ai/node-datto-rmm@1.1.0 types. The client forwards the body verbatim,
+ * so keep the public key/value input shape but serialize the API's nested
+ * jobComponent contract until the SDK type is corrected upstream.
+ */
+interface QuickJobRequestBody {
+  jobName: string;
+  jobComponent: {
+    componentUid: string;
+    variables: { name: string; value: string }[];
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Server factory — creates a fresh server per request (stateless HTTP mode)
 // ---------------------------------------------------------------------------
 
@@ -563,6 +586,33 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
               },
             },
             required: ["siteUid"],
+          },
+        },
+        {
+          name: "datto_submit_connectivity_check",
+          description:
+            "Run the reviewed connectivity-check quick job on one device. Provide exactly one destinationHost or targetHost and an optional port. Actor, role, and approval checks are enforced by the Summit proxy before this tool is forwarded.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              deviceUid: {
+                type: "string",
+                description: "The device UID to run the connectivity check on",
+              },
+              destinationHost: {
+                type: "string",
+                description: "Destination hostname or IP address to check",
+              },
+              targetHost: {
+                type: "string",
+                description: "Compatibility alias for destinationHost",
+              },
+              port: {
+                type: "number",
+                description: "Optional TCP port to check",
+              },
+            },
+            required: ["deviceUid"],
           },
         },
         {
@@ -981,6 +1031,72 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           };
         }
 
+        case "datto_submit_connectivity_check": {
+          const {
+            deviceUid,
+            destinationHost,
+            targetHost,
+            port,
+          } = args as {
+            deviceUid: string;
+            destinationHost?: string;
+            targetHost?: string;
+            port?: number;
+          };
+
+          const hasDestinationHost = Object.prototype.hasOwnProperty.call(
+            args ?? {},
+            "destinationHost"
+          );
+          const hasTargetHost = Object.prototype.hasOwnProperty.call(
+            args ?? {},
+            "targetHost"
+          );
+          if (hasDestinationHost === hasTargetHost) {
+            throw new Error(
+              "Exactly one of destinationHost or targetHost is required"
+            );
+          }
+
+          const connectivityHost = hasDestinationHost
+            ? destinationHost
+            : targetHost;
+          if (typeof connectivityHost !== "string" || !connectivityHost.trim()) {
+            throw new Error("Connectivity host must be a non-empty string");
+          }
+          if (
+            port !== undefined &&
+            (!Number.isInteger(port) || port < 1 || port > 65535)
+          ) {
+            throw new Error("port must be an integer between 1 and 65535");
+          }
+
+          const connectivityVariables: Record<string, string> = {
+            TargetHost: connectivityHost,
+          };
+          if (port !== undefined) connectivityVariables.Port = String(port);
+
+          const jobRequest: QuickJobRequestBody = {
+            jobName: "Connectivity check",
+            jobComponent: {
+              componentUid: CONNECTIVITY_CHECK_COMPONENT_UID,
+              variables: Object.entries(connectivityVariables).map(
+                ([name, value]) => ({ name, value })
+              ),
+            },
+          };
+          const result = await client.devices.createQuickJob(
+            deviceUid,
+            // Keep the same compatibility cast as the generic quick-job path.
+            jobRequest as unknown as QuickJobRequest
+          );
+          return {
+            content: [
+              { type: "text", text: JSON.stringify(result ?? {}, null, 2) },
+            ],
+          };
+        }
+
         case "datto_run_quickjob": {
           const { deviceUid, jobName, componentUid, variables } = args as {
             deviceUid: string;
@@ -989,15 +1105,23 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
             variables?: Record<string, string>;
           };
 
-          const jobRequest = {
+          // Keep the public key/value map convenient for callers, but
+          // convert it to the nested shape required by the Datto API.
+          const jobRequest: QuickJobRequestBody = {
             jobName,
-            componentUid,
-            variables,
+            jobComponent: {
+              componentUid,
+              variables: Object.entries(variables ?? {}).map(
+                ([name, value]) => ({ name, value })
+              ),
+            },
           };
 
           const result = await client.devices.createQuickJob(
             deviceUid,
-            jobRequest
+            // @wyre-ai/node-datto-rmm@1.1.0 still types the obsolete flat
+            // body; remove this cast when the corrected SDK type is released.
+            jobRequest as unknown as QuickJobRequest
           );
           return {
             content: [
