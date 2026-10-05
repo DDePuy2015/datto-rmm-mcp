@@ -35,6 +35,7 @@ async function call(name: string, args: Record<string, unknown>) {
       headers: {
         Accept: "application/json, text/event-stream",
         "Content-Type": "application/json",
+        "x-summit-datto-backend-token": ENV.DATTO_BACKEND_TOKEN,
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
