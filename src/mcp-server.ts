@@ -54,6 +54,10 @@ const VALID_PLATFORMS: Platform[] = [
   "syrah",
 ];
 
+// Reviewed by the Summit proxy as the direct Operator connectivity action.
+const CONNECTIVITY_CHECK_COMPONENT_UID =
+  "a2e06e6f-905f-4828-820c-8ff2f2d772da";
+
 /**
  * Resolve a platform string to a valid Platform, defaulting to "concord".
  */
@@ -585,6 +589,33 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           },
         },
         {
+          name: "datto_submit_connectivity_check",
+          description:
+            "Run the reviewed connectivity-check quick job on one device. Provide exactly one destinationHost or targetHost and an optional port. Actor, role, and approval checks are enforced by the Summit proxy before this tool is forwarded.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              deviceUid: {
+                type: "string",
+                description: "The device UID to run the connectivity check on",
+              },
+              destinationHost: {
+                type: "string",
+                description: "Destination hostname or IP address to check",
+              },
+              targetHost: {
+                type: "string",
+                description: "Compatibility alias for destinationHost",
+              },
+              port: {
+                type: "number",
+                description: "Optional TCP port to check",
+              },
+            },
+            required: ["deviceUid"],
+          },
+        },
+        {
           name: "datto_run_quickjob",
           description: "Run a quick job on a device",
           inputSchema: {
@@ -997,6 +1028,72 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           const patches = await getSitePatches(creds, siteUid);
           return {
             content: [{ type: "text", text: JSON.stringify(patches, null, 2) }],
+          };
+        }
+
+        case "datto_submit_connectivity_check": {
+          const {
+            deviceUid,
+            destinationHost,
+            targetHost,
+            port,
+          } = args as {
+            deviceUid: string;
+            destinationHost?: string;
+            targetHost?: string;
+            port?: number;
+          };
+
+          const hasDestinationHost = Object.prototype.hasOwnProperty.call(
+            args ?? {},
+            "destinationHost"
+          );
+          const hasTargetHost = Object.prototype.hasOwnProperty.call(
+            args ?? {},
+            "targetHost"
+          );
+          if (hasDestinationHost === hasTargetHost) {
+            throw new Error(
+              "Exactly one of destinationHost or targetHost is required"
+            );
+          }
+
+          const connectivityHost = hasDestinationHost
+            ? destinationHost
+            : targetHost;
+          if (typeof connectivityHost !== "string" || !connectivityHost.trim()) {
+            throw new Error("Connectivity host must be a non-empty string");
+          }
+          if (
+            port !== undefined &&
+            (!Number.isInteger(port) || port < 1 || port > 65535)
+          ) {
+            throw new Error("port must be an integer between 1 and 65535");
+          }
+
+          const connectivityVariables: Record<string, string> = {
+            TargetHost: connectivityHost,
+          };
+          if (port !== undefined) connectivityVariables.Port = String(port);
+
+          const jobRequest: QuickJobRequestBody = {
+            jobName: "Connectivity check",
+            jobComponent: {
+              componentUid: CONNECTIVITY_CHECK_COMPONENT_UID,
+              variables: Object.entries(connectivityVariables).map(
+                ([name, value]) => ({ name, value })
+              ),
+            },
+          };
+          const result = await client.devices.createQuickJob(
+            deviceUid,
+            // Keep the same compatibility cast as the generic quick-job path.
+            jobRequest as unknown as QuickJobRequest
+          );
+          return {
+            content: [
+              { type: "text", text: JSON.stringify(result ?? {}, null, 2) },
+            ],
           };
         }
 

@@ -152,4 +152,63 @@ describe("datto_run_quickjob payload shape", () => {
       jobComponent: { componentUid: "component-000", variables: [] },
     });
   });
+
+  it("maps the reviewed connectivity-check tool to its fixed component and variables", async () => {
+    let capturedBody: unknown;
+    stubFetch((url, init) => {
+      if (
+        url === DATTO_HOST + "/api/v2/device/device-456/quickjob" &&
+        init?.method === "PUT"
+      ) {
+        capturedBody = JSON.parse(String(init.body));
+        return jsonResponse({ uid: "job-connectivity", status: "queued" });
+      }
+      return undefined;
+    });
+
+    const res = await call("datto_submit_connectivity_check", {
+      deviceUid: "device-456",
+      destinationHost: "192.0.2.10",
+      port: 443,
+    });
+
+    expect(res.status).toBe(200);
+    expect(capturedBody).toEqual({
+      jobName: "Connectivity check",
+      jobComponent: {
+        componentUid: "a2e06e6f-905f-4828-820c-8ff2f2d772da",
+        variables: [
+          { name: "TargetHost", value: "192.0.2.10" },
+          { name: "Port", value: "443" },
+        ],
+      },
+    });
+  });
+
+  it("accepts targetHost without a port for the reviewed connectivity check", async () => {
+    let capturedBody: unknown;
+    stubFetch((url, init) => {
+      if (
+        url === DATTO_HOST + "/api/v2/device/device-456/quickjob" &&
+        init?.method === "PUT"
+      ) {
+        capturedBody = JSON.parse(String(init.body));
+        return jsonResponse({ uid: "job-connectivity-2", status: "queued" });
+      }
+      return undefined;
+    });
+
+    await call("datto_submit_connectivity_check", {
+      deviceUid: "device-456",
+      targetHost: "example.test",
+    });
+
+    expect(capturedBody).toEqual({
+      jobName: "Connectivity check",
+      jobComponent: {
+        componentUid: "a2e06e6f-905f-4828-820c-8ff2f2d772da",
+        variables: [{ name: "TargetHost", value: "example.test" }],
+      },
+    });
+  });
 });
