@@ -16,7 +16,11 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import worker from "../worker.js";
 
 const DATTO_HOST = "https://concord-api.centrastage.net";
-const ENV = {\n  DATTO_API_KEY: "test-key",\n  DATTO_API_SECRET: "test-secret",\n  DATTO_BACKEND_TOKEN: "test-backend-token-do-not-use-in-prod",\n};
+const ENV = {
+  DATTO_API_KEY: "test-key",
+  DATTO_API_SECRET: "test-secret",
+  DATTO_BACKEND_TOKEN: "test-backend-token-do-not-use-in-prod",
+};
 
 const realFetch = globalThis.fetch;
 
