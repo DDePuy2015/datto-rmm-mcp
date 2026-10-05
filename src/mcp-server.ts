@@ -21,6 +21,7 @@ import {
   DattoRmmClient,
   type Device,
   type Platform,
+  type QuickJobRequest,
 } from "@wyre-ai/node-datto-rmm";
 import { getDevicePatches, getSitePatches } from "./patches.js";
 import { elicitSelection } from "./utils/elicitation.js";
@@ -327,6 +328,24 @@ export async function findDevicesByHostname(
         portalUrl: raw.portalUrl,
       };
     });
+}
+
+// ---------------------------------------------------------------------------
+// Quick job payload shape
+// ---------------------------------------------------------------------------
+
+/**
+ * Datto RMM rejects the flat quick-job body declared by the published
+ * @wyre-ai/node-datto-rmm@1.1.0 types. The client forwards the body verbatim,
+ * so keep the public key/value input shape but serialize the API's nested
+ * jobComponent contract until the SDK type is corrected upstream.
+ */
+interface QuickJobRequestBody {
+  jobName: string;
+  jobComponent: {
+    componentUid: string;
+    variables: { name: string; value: string }[];
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -989,15 +1008,23 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
             variables?: Record<string, string>;
           };
 
-          const jobRequest = {
+          // Keep the public key/value map convenient for callers, but
+          // convert it to the nested shape required by the Datto API.
+          const jobRequest: QuickJobRequestBody = {
             jobName,
-            componentUid,
-            variables,
+            jobComponent: {
+              componentUid,
+              variables: Object.entries(variables ?? {}).map(
+                ([name, value]) => ({ name, value })
+              ),
+            },
           };
 
           const result = await client.devices.createQuickJob(
             deviceUid,
-            jobRequest
+            // @wyre-ai/node-datto-rmm@1.1.0 still types the obsolete flat
+            // body; remove this cast when the corrected SDK type is released.
+            jobRequest as unknown as QuickJobRequest
           );
           return {
             content: [
