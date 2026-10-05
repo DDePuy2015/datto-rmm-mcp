@@ -60,7 +60,7 @@ function stubFetch(
   handler: (url: string, init?: RequestInit) => Response | undefined
 ) {
   globalThis.fetch = vi.fn(async (input, init) => {
-    const url = typeof input === "string" ? input : input.toString();
+    const url =\n      typeof input === "string"\n        ? input\n        : input instanceof Request\n          ? input.url\n          : input.toString();
     if (url.startsWith(`${DATTO_HOST}/auth/oauth/token`)) {
       return new Response(
         JSON.stringify({
