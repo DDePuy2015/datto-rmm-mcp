@@ -171,9 +171,10 @@ async function startHttpTransport(): Promise<void> {
       // bound context survives every await/then gap it spans.
       runWithServerRef(server, () => {
         server.connect(transport as unknown as Transport).then(() => {
-          transport.handleRequest(req, res);
-        }).catch((err) => {
-          console.error("MCP transport error:", err);
+          return transport.handleRequest(req, res);
+        }).catch(() => {
+          // Transport exceptions can contain request or credential data.
+          console.error("MCP transport error");
           if (!res.headersSent) {
             res.writeHead(500, { "Content-Type": "application/json" });
             res.end(JSON.stringify({
@@ -181,6 +182,8 @@ async function startHttpTransport(): Promise<void> {
               error: { code: -32603, message: "Internal error" },
               id: null,
             }));
+          } else if (!res.writableEnded) {
+            res.destroy();
           }
         });
       });
