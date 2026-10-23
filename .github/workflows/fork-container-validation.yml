@@ -134,10 +134,12 @@ jobs:
           SCAN_OUTCOME: ${{ steps.image-scan.outcome }}
         run: |
           set -euo pipefail
-          jq '[.Results[]? | {type: .Type, vulnerabilities: [.Vulnerabilities[]? | {id: .VulnerabilityID, severity: .Severity, fixedVersion: .FixedVersion}], secrets: [.Secrets[]? | {rule: .RuleID, severity: .Severity}]}]' "$RUNNER_TEMP/image-scan.json" > "$EVIDENCE/image-scan-summary.json"
+          jq '[.Results[]? | {type: .Type, vulnerabilities: [.Vulnerabilities[]? | {id: .VulnerabilityID, package: .PkgName, installedVersion: .InstalledVersion, severity: .Severity, fixedVersion: .FixedVersion}], secrets: [.Secrets[]? | {rule: .RuleID, severity: .Severity}]}]' "$RUNNER_TEMP/image-scan.json" > "$EVIDENCE/image-scan-summary.json"
+          cat "$EVIDENCE/image-scan-summary.json"
           test "$SCAN_OUTCOME" = success
 
       - name: Generate image CycloneDX SBOM
+        if: ${{ always() && steps.build.outcome == 'success' }}
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: ${{ env.LOCAL_IMAGE }}
