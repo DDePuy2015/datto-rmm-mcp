@@ -21,6 +21,9 @@ for (const [name, version] of Object.entries({
 assert.equal(existsSync('/app/node_modules/typescript'), false);
 assert.equal(existsSync('/app/node_modules/vitest'), false);
 assert.equal(existsSync('/app/.npmrc'), false);
+assert.equal(existsSync('/usr/local/lib/node_modules/npm'), false);
+assert.equal(existsSync('/usr/local/bin/npm'), false);
+assert.equal(existsSync('/usr/local/bin/npx'), false);
 assert.equal(process.env.NODE_AUTH_TOKEN, undefined);
 assert.equal(process.env.DATTO_API_KEY, undefined);
 assert.equal(process.env.DATTO_API_SECRET, undefined);
