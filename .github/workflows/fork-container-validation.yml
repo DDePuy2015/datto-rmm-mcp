@@ -1,0 +1,153 @@
+name: Fork Container Validation
+
+# Validation only: no registry login, publication, release, or Azure deployment.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  validate:
+    name: Validate source and runtime image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      LOCAL_IMAGE: datto-rmm-mcp:validation
+      EVIDENCE: /tmp/datto-validation
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          persist-credentials: false
+
+      - name: Verify source pin
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+          mkdir -p "$EVIDENCE"
+
+      - name: Set up image-aligned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26.x
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+
+      - name: Install canonical dependencies
+        run: npm ci --ignore-scripts --engine-strict
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Validate source
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+      - name: Require zero production audit findings
+        run: npm audit --omit=dev --json > "$EVIDENCE/production-audit.json"
+
+      - name: Generate source CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx > "$EVIDENCE/source-sbom.cdx.json"
+
+      - name: Scan tracked source for secrets
+        id: source-scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          skip-dirs: node_modules,dist,.git
+          format: json
+          output: ${{ runner.temp }}/source-scan.json
+          exit-code: '1'
+
+      - name: Retain sanitized source findings and enforce scan
+        if: ${{ always() && steps.source-scan.outcome != 'skipped' }}
+        env:
+          SCAN_OUTCOME: ${{ steps.source-scan.outcome }}
+        run: |
+          set -euo pipefail
+          jq '[.Results[]? | {type: .Type, secrets: [.Secrets[]? | {rule: .RuleID, severity: .Severity}]}]' "$RUNNER_TEMP/source-scan.json" > "$EVIDENCE/source-scan-summary.json"
+          test "$SCAN_OUTCOME" = success
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build local image without publishing
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          # The Docker daemon cannot retain attestations. Publication must
+          # separately retain and verify signed provenance for its exact digest.
+          provenance: false
+          tags: ${{ env.LOCAL_IMAGE }}
+          build-args: |
+            COMMIT_SHA=${{ env.EXPECTED_SHA }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/DDePuy2015/datto-rmm-mcp
+            org.opencontainers.image.revision=${{ env.EXPECTED_SHA }}
+          secrets: |
+            github_token=${{ secrets.NODE_AUTH_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Validate image metadata and isolated runtime
+        run: |
+          set -euo pipefail
+          docker image inspect "$LOCAL_IMAGE" | jq --arg sha "$EXPECTED_SHA" '[.[0] | {id: .Id, architecture: .Architecture, user: .Config.User, command: .Config.Cmd, revision: .Config.Labels["org.opencontainers.image.revision"], source: .Config.Labels["org.opencontainers.image.source"]}] | if (.[0] | .architecture == "amd64" and .user == "datto" and .command == ["node", "dist/index.js"] and .revision == $sha and .source == "https://github.com/DDePuy2015/datto-rmm-mcp") then . else error("image metadata mismatch") end' > "$EVIDENCE/image-metadata.json"
+          docker run --detach --name datto-validation --network none -e DATTO_BACKEND_TOKEN=synthetic-container-backend-token "$LOCAL_IMAGE" > /dev/null
+          trap 'docker rm -f datto-validation > /dev/null' EXIT
+          docker exec -i datto-validation node --input-type=module < scripts/validate-container.mjs
+
+      - name: Scan exact local image for vulnerabilities and secrets
+        id: image-scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          format: json
+          output: ${{ runner.temp }}/image-scan.json
+          exit-code: '1'
+
+      - name: Retain sanitized image findings and enforce scan
+        if: ${{ always() && steps.image-scan.outcome != 'skipped' }}
+        env:
+          SCAN_OUTCOME: ${{ steps.image-scan.outcome }}
+        run: |
+          set -euo pipefail
+          jq '[.Results[]? | {type: .Type, vulnerabilities: [.Vulnerabilities[]? | {id: .VulnerabilityID, severity: .Severity, fixedVersion: .FixedVersion}], secrets: [.Secrets[]? | {rule: .RuleID, severity: .Severity}]}]' "$RUNNER_TEMP/image-scan.json" > "$EVIDENCE/image-scan-summary.json"
+          test "$SCAN_OUTCOME" = success
+
+      - name: Generate image CycloneDX SBOM
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: cyclonedx
+          output: ${{ env.EVIDENCE }}/image-sbom.cdx.json
+
+      - name: Retain validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: datto-validation-${{ env.EXPECTED_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.EVIDENCE }}/*.json
+          if-no-files-found: warn
