@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server as HttpServer } from "node:http";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { getServerRef } from "../utils/server-ref.js";
 
@@ -72,6 +73,22 @@ function request() {
 }
 
 describe("Node HTTP asynchronous transport failures", () => {
+  it("returns the generic error when connecting rejects before request dispatch", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(Server.prototype, "connect").mockRejectedValueOnce(new Error("synthetic-connect-secret"));
+    const dispatch = vi.spyOn(StreamableHTTPServerTransport.prototype, "handleRequest");
+
+    const response = await request();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0", id: null,
+      error: { code: -32603, message: "Internal error" },
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(logged.mock.calls).toEqual([["MCP transport error"]]);
+    expect(unhandled).toEqual([]);
+  });
+
   it("catches a rejection after an await gap without an unhandled rejection", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const failure = new Error("synthetic-secret-must-not-be-logged");
@@ -109,6 +126,28 @@ describe("Node HTTP asynchronous transport failures", () => {
     expect(response.status).toBe(200);
     await expect(response.text()).rejects.toThrow();
     await new Promise((resolve) => setImmediate(resolve));
+    expect(unhandled).toEqual([]);
+  });
+
+  it("keeps an already completed response intact when handling later rejects", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    let rejected!: () => void;
+    const rejectionReached = new Promise<void>((resolve) => { rejected = resolve; });
+    vi.spyOn(StreamableHTTPServerTransport.prototype, "handleRequest")
+      .mockImplementationOnce(async (_req, res) => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ complete: true }));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        rejected();
+        throw new Error("synthetic-post-response-secret");
+      });
+
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ complete: true });
+    await rejectionReached;
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(logged.mock.calls).toEqual([["MCP transport error"]]);
     expect(unhandled).toEqual([]);
   });
 
