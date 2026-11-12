@@ -22,6 +22,7 @@ import {
 } from "./backend-auth.js";
 import { runWithServerRef, bindServerRef } from "./utils/server-ref.js";
 import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
+import { MAX_MCP_REQUEST_BODY_BYTES } from "./transport-limits.js";
 
 // Optional until the per-service gateway secret is provisioned through ops.
 const S2S_SECRET = process.env.CONDUIT_S2S_SECRET || "";
@@ -156,6 +157,7 @@ async function startHttpTransport(): Promise<void> {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
+        maxRequestBodySize: MAX_MCP_REQUEST_BODY_BYTES,
       });
 
       res.on("close", () => {
@@ -171,9 +173,10 @@ async function startHttpTransport(): Promise<void> {
       // bound context survives every await/then gap it spans.
       runWithServerRef(server, () => {
         server.connect(transport as unknown as Transport).then(() => {
-          transport.handleRequest(req, res);
-        }).catch((err) => {
-          console.error("MCP transport error:", err);
+          return transport.handleRequest(req, res);
+        }).catch(() => {
+          // Transport exceptions can contain request or credential data.
+          console.error("MCP transport error");
           if (!res.headersSent) {
             res.writeHead(500, { "Content-Type": "application/json" });
             res.end(JSON.stringify({
@@ -181,6 +184,8 @@ async function startHttpTransport(): Promise<void> {
               error: { code: -32603, message: "Internal error" },
               id: null,
             }));
+          } else if (!res.writableEnded) {
+            res.destroy();
           }
         });
       });

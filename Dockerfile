@@ -51,8 +51,10 @@ COPY package*.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 
-# Clean npm cache
-RUN npm cache clean --force
+# The runtime starts directly with Node. Remove build-only npm and its separate
+# dependency tree instead of shipping vulnerable CLI packages in production.
+RUN npm cache clean --force && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Create logs directory
 RUN mkdir -p /app/logs && chown -R datto:datto /app
