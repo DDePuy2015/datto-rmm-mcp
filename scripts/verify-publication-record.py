@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify merged immutable Ops scope evidence; never substitutes for dispatch approval."""
+"""Operator pre-dispatch Ops verification using existing gh auth; no dispatch approval."""
 import base64
 import hashlib
 import json
@@ -81,6 +81,8 @@ def verify_record(url, source, fetch):
 
 
 def github_fetch(endpoint):
+    # gh uses the operator's existing authenticated session. Never extract its token
+    # or copy it into an Actions secret merely to verify this private record.
     result = subprocess.run(["gh", "api", endpoint], capture_output=True, text=True, timeout=60)
     # Do not include private document content or authentication diagnostics in errors.
     require(result.returncode == 0, "Ops read failed; verify read-only Ops access and immutable record existence")
@@ -94,7 +96,6 @@ def github_fetch(endpoint):
 
 
 def main():
-    require(bool(os.environ.get("GH_TOKEN")), "Read-only Ops token is required")
     print(json.dumps(verify_record(os.environ.get("RELEASE_RECORD_URL"),
                                   os.environ.get("GITHUB_SHA"), github_fetch), indent=2))
 

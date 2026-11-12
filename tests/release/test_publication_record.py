@@ -105,11 +105,28 @@ class PublicationRecordTests(unittest.TestCase):
                 record.github_fetch("repos/example/missing")
             self.assertNotIn("private", str(error.exception))
 
-    def test_missing_token_fails_before_network(self):
+    def test_main_uses_existing_cli_auth_without_an_exported_token(self):
+        env = {"RELEASE_RECORD_URL": URL, "GITHUB_SHA": SOURCE}
+        with patch.dict("os.environ", env, clear=True), \
+             patch.object(record, "github_fetch", side_effect=self.data.__getitem__) as fetch, \
+             patch("builtins.print") as output:
+            record.main()
+            self.assertEqual(fetch.call_count, 4)
+            self.assertEqual(json.loads(output.call_args.args[0])["sourceCommit"], SOURCE)
+
+    def test_missing_request_fails_before_network(self):
         with patch.dict("os.environ", {}, clear=True), patch.object(record, "github_fetch") as fetch:
-            with self.assertRaisesRegex(ValueError, "token"):
+            with self.assertRaisesRegex(ValueError, "record URL"):
                 record.main()
             fetch.assert_not_called()
+
+    def test_cli_read_uses_auth_session_without_extracting_credentials(self):
+        endpoint = f"{PREFIX}/git/commits/{PIN}"
+        response = subprocess.CompletedProcess([], 0, json.dumps({"sha": PIN}), "")
+        with patch("subprocess.run", return_value=response) as run:
+            self.assertEqual(record.github_fetch(endpoint), {"sha": PIN})
+            run.assert_called_once_with(["gh", "api", endpoint], capture_output=True,
+                                        text=True, timeout=60)
 
     def test_crlf_record(self):
         self.set_text(self.block().replace("\n", "\r\n"))

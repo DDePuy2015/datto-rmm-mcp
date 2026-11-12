@@ -47,7 +47,6 @@ class WorkflowContractTests(unittest.TestCase):
         login = self.publisher.index("uses: azure/login@")
         self.assertLess(verify, login)
         self.assertLess(self.publisher.index("verify-semgrep-release.py > publication/semgrep.json"), login)
-        self.assertLess(self.publisher.index("verify-publication-record.py > publication/ops-record.json"), login)
         self.assertIn("release-package.py request", self.publisher[:login])
         self.assertIn("Missing successful latest exact-main validation", self.publisher)
         publish_job = self.publisher[self.publisher.index("  publish:\n"):]
@@ -94,3 +93,15 @@ class WorkflowContractTests(unittest.TestCase):
         production = dockerfile[dockerfile.index(" AS production"):]
         self.assertIn("RUN apk add --no-cache 'zlib>=1.4-r0'", production)
         self.assertNotIn("CVE-2026-4738", self.validation)
+
+    def test_ops_record_is_verified_separately_without_a_workflow_credential(self):
+        self.assertNotIn("OPS_READ_TOKEN", self.publisher)
+        self.assertNotIn("verify-publication-record.py", self.publisher)
+        self.assertNotIn("ops-record.json", self.publisher)
+        self.assertNotIn("verified-ops-publication-scope", self.publisher)
+        self.assertIn('RELEASE_RECORD_URL: ${{ inputs.release_record_url }}', self.publisher)
+        self.assertIn('"releaseRecord":os.environ["RELEASE_RECORD_URL"]', self.publisher)
+        self.assertIn("operator verifies private Ops content before dispatch", self.publisher)
+        docs = (ROOT / "docs/signed-acr-publisher.md").read_text()
+        self.assertIn("operator responsibility, not an automated workflow gate", docs)
+        self.assertIn("python3 scripts/verify-publication-record.py", docs)
