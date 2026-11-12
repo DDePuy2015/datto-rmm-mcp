@@ -43,7 +43,9 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Fork publication is intentionally disabled pending a reviewed, signed immutable ACR publisher.
+    # Source checks remain in CI and Fork Container Validation.
+    if: github.repository == 'WYRE-AI/datto-rmm-mcp' && github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     permissions:
       contents: read
