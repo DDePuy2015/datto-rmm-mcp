@@ -83,8 +83,10 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("test -z \"$(git status --porcelain)\"", self.validation)
 
     def test_artifact_paths_are_absolute_outside_build_context_without_parent_segments(self):
-        self.assertIn("RELEASE: ${{ runner.temp }}/datto-release", self.validation)
-        self.assertIn("EVIDENCE: ${{ runner.temp }}/datto-release/reports", self.validation)
+        self.assertIn("printf 'RELEASE=%s/datto-release\\n'", self.validation)
+        self.assertIn("printf 'EVIDENCE=%s/datto-release/reports\\n'", self.validation)
+        self.assertNotIn("${{ runner.", self.validation)
+        self.assertLess(self.validation.index("Initialize runner-local"), self.validation.index("Checkout exact source commit"))
         self.assertNotIn("/../", self.validation)
 
     def test_runtime_base_has_fixed_zlib_without_scan_exception(self):

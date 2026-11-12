@@ -29,9 +29,12 @@ jobs:
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       LOCAL_IMAGE: datto-rmm-mcp:validation
-      RELEASE: ${{ runner.temp }}/datto-release
-      EVIDENCE: ${{ runner.temp }}/datto-release/reports
     steps:
+      - name: Initialize runner-local artifact paths outside the source checkout
+        run: |
+          printf 'RELEASE=%s/datto-release\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'EVIDENCE=%s/datto-release/reports\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout exact source commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
