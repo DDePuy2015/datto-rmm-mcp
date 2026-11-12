@@ -1,73 +1,114 @@
-# Datto signed ACR publisher preparation
+# Datto signed ACR publisher
 
-This prepares publication only. It does not merge source, configure credentials,
-create identities, grant permissions, publish images or change Container Apps.
-The workflow remains dormant while DATTO_ACR_PUBLICATION_ENABLED is unset.
+The publisher is manual and remains dormant while DATTO_ACR_PUBLICATION_ENABLED
+is unset. Merging this workflow does not authorize signing, image publication,
+Container Apps staging or production traffic changes.
+
+## Consistent release-record handling
+
+Datto follows the established FortiManager approach: an operator verifies the
+private Ops release record before dispatch, and the publisher carries its
+immutable URL into signed provenance. GitHub Actions does not read the private
+Ops repository and needs no dedicated Ops token.
+
+Record-content verification is an operator responsibility, not an automated workflow gate.
+The workflow checks the immutable URL format and requires explicit publication
+confirmation, but it cannot itself prove that the operator read the record or
+that the record contains the approved scope. Do not describe the URL in signed
+provenance as proof of an in-workflow record-content check.
+
+Reference: FortiManager publisher run
+[43107173849](https://github.com/DDePuy2015/summit-fortimanager-mcp/actions/runs/43107173849)
+at source 4dc7d2ecebaa86c9b520f5d4f8b4161dc7102e91. This consistency change moves
+only the location of the record check. It retains Datto's zero-finding policy,
+source/image binding, main-only manual request and disabled-by-default controls.
+
+## Before any publication
+
+1. Review and merge the intended Datto source. Require successful exact-main CI,
+   MCP assertions, full source/image validation and trusted Semgrep evidence.
+2. Prepare the separately approved Ops publication record for that final source,
+   merge it into summit-mcp-ops main, and use its full immutable commit URL.
+3. From an operator session that already has authorized GitHub CLI access to Ops,
+   run the strict read-only verifier below. It verifies the pinned commit is
+   merged, checks the file identity and hash, and matches the exact Datto source,
+   destination and publish-only scope. Missing access or any mismatch is a stop.
+   Do not extract the operator's credential or copy it to an Actions secret.
+4. Retain the sanitized verification result with the operator's release evidence.
+   Obtain explicit approval for the exact source and publication action, then
+   supply that same source and record URL to the manual publisher. If main or the
+   approved scope changes, stop and verify the new request instead.
+
+Example in a shell with existing authenticated gh access:
+
+```sh
+export GITHUB_SHA="$(gh api repos/DDePuy2015/datto-rmm-mcp/git/ref/heads/main --jq .object.sha)"
+export RELEASE_RECORD_URL="https://github.com/DDePuy2015/summit-mcp-ops/blob/FULL_OPS_COMMIT/deployments/RECORD.md"
+python3 scripts/verify-publication-record.py > ../datto-ops-record-check.json
+```
+
+The example requires an actual approved record; placeholders are rejected. The
+verifier never grants approval or dispatches a workflow. Its sanitized output
+contains identity and hash metadata, not the private document body. That local
+receipt is not automatically consumed or attested by the publishing workflow.
 
 ## Artifact flow
 
-1. Every PR and main push runs the canonical source checks and builds one OCI
-   archive from the exact checkout and pinned official Node base. Private-package
-   credentials enter only as a BuildKit secret, never as a build argument.
-2. That archive, including BuildKit maximum provenance and SPDX SBOM, is loaded
-   into the local Docker daemon. Tests and scans run against its exact config ID.
-   A package verifier checks the full reachable OCI graph, source labels and
-   tracked-file hashes, runtime identity, run/attempt, audits and scan coverage.
-3. Production npm audit, every runtime vulnerability severity and all secret
-   scans must be zero. There is no Datto residual-risk exception. Failure retains
+1. Every PR and main push runs canonical source checks and builds one OCI archive
+   from the exact checkout and pinned official Node base. Private-package
+   credentials enter only as a BuildKit secret, never a build argument.
+2. The archive includes BuildKit maximum provenance and SPDX SBOM. Its selected
+   runtime is loaded locally; tests and scans use its exact config ID. The package
+   verifier checks every reachable OCI blob, tracked-source hashes, source labels,
+   runtime identity, run/attempt, audit results and scan coverage.
+3. Production npm audit, runtime vulnerabilities at every severity and secret
+   scans must all be zero. No Datto residual-risk exception exists. Failure keeps
    sanitized diagnostic evidence, never a validated release package.
-4. A separate manual workflow requires exact current main, an explicit publication
+4. The manual publisher requires exact current main, explicit publication
    confirmation, first attempt, configured enablement, successful latest main CI,
-   trusted Semgrep evidence, and an immutable merged Ops scope record.
-5. Its reusable validation job creates a fresh package in the same workflow run.
-   The publisher downloads only that exact source/run/attempt artifact, verifies
-   it again against the checked-out source, and rechecks Semgrep/Ops before Azure
-   login. It never rebuilds an image after credentials are obtained.
-6. A digest-preserving copy targets only the existing
-   summititmcpacr.azurecr.io/datto-rmm-mcp repository. The publisher checks the
-   registry root bytes and round-trips the whole OCI graph before keyless Cosign
-   signing. Signature, CycloneDX and source/run/approval-scope provenance are
-   verified against the exact digest and this workflow's main-branch identity.
+   trusted Semgrep evidence and the immutable Ops record URL checked separately.
+5. Reusable validation creates a fresh package in that same run. Before Azure
+   login, the publisher verifies the exact source/run/attempt artifact against the
+   checkout and rechecks Semgrep. It never rebuilds after obtaining credentials.
+6. Digest-preserving copy targets only summititmcpacr.azurecr.io/datto-rmm-mcp.
+   Registry root bytes and the complete round-tripped OCI graph must match before
+   keyless Cosign signing. The signature, CycloneDX SBOM and source/run provenance
+   are verified against the exact digest and main-branch workflow identity.
+   Provenance includes the operator-supplied immutable release-record URL.
 
-Tags include the full source SHA and run/attempt and are locators, not deployment
-identities. A different existing tag is never overwritten. Partial publication
-is recorded separately. Reruns are refused: reconcile the retained evidence and
-obtain a fresh explicit decision before any new dispatch.
+Full-SHA/run/attempt tags are locators, not deployment identities. Different
+existing tags are never overwritten. Partial publication is recorded separately.
+Reruns are refused: reconcile the evidence and obtain a fresh explicit decision
+before another dispatch. Publication approval does not authorize deployment.
 
-## Required configuration decision
+## Publisher configuration
 
-Read-only inspection on November 12 found the Datto ACR repository exists, but
-this GitHub repository has no Azure publisher secrets, variables or environments.
-Existing registered ACR publisher identities federate to Proxy, IT Glue or
-FortiManager, not Datto. Their identities must not be repurposed silently.
+On November 12, the owner approved the dedicated Datto managed identity and its
+registry-scoped AcrPush grant, matching the FortiManager pattern. The main-only
+GitHub OIDC trust uses immutable owner/repository IDs. The three existing-pattern
+Azure identifier settings are configured:
 
-The registry currently uses LegacyRegistryPermissions. Standard AcrPush is
-registry-wide, not restricted to this one repository. Provisioning a dedicated
-Datto workload identity with that grant therefore needs explicit approval of
-that scope. Moving the whole registry to ABAC is a separate platform change
-that can affect existing pull/push identities and is not part of this patch.
-A repository-scoped credential design would need its own reviewed lifecycle.
+- AZURE_CLIENT_ID
+- AZURE_TENANT_ID
+- AZURE_SUBSCRIPTION_ID
 
-Datto currently has GitHub's name-based default OIDC subject. Any choice to
-adopt immutable owner/repository IDs must be coordinated with the exact Azure
-federation subject; no subject setting was changed. A future setup must supply
-these existing-pattern configuration names without placing values in source:
+There is no Ops-token requirement. GitHub's built-in token handles this Datto
+repository's reads; it is not assumed to read the private Ops repository.
+DATTO_ACR_PUBLICATION_ENABLED remains unset until publication is separately
+approved. Never enable it merely to test a login or a release-record check.
 
-- AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID repository secrets.
-- OPS_READ_TOKEN: read-only access to the private summit-mcp-ops repository.
-  The Datto repository's GITHUB_TOKEN is not assumed to have cross-repo access.
-- DATTO_ACR_PUBLICATION_ENABLED repository variable, explicitly true only after
-  the identity, scope, record-reader and reviewed publisher are approved.
-
-The workflow never uses registry admin passwords, creates credentials, alters
-federation, changes role assignments, or enables itself. No such setup has been
-authorized or performed by this preparation.
+The registry uses LegacyRegistryPermissions, so AcrPush grants pull/push across
+all repositories in that registry. The workflow's Datto destination restriction
+does not reduce that underlying Azure permission. Moving the registry to ABAC is
+a separate platform change affecting existing identities and is not part of this
+workflow change. The workflow never uses registry admin passwords, provisions
+identities, alters role assignments or federation, or enables itself.
 
 ## Immutable Ops record format
 
-The URL must identify deployments/<record>.md at a full commit in
-DDePuy2015/summit-mcp-ops, and that commit must already be reachable from main.
-The file must contain exactly one fenced JSON block tagged datto-publication:
+The separate verifier requires deployments/<record>.md at a full commit in
+DDePuy2015/summit-mcp-ops, already reachable from main, with exactly one fenced
+JSON block tagged datto-publication:
 
 ```datto-publication
 {
@@ -79,26 +120,20 @@ The file must contain exactly one fenced JSON block tagged datto-publication:
 }
 ```
 
-The record binds the approved scope and source; it does not replace the owner's
-explicit manual-dispatch confirmation. The workflow retains only sanitized
-record metadata and a hash, not the private document's full contents.
-Publication approval does not authorize Azure staging or production traffic.
+The record describes the approved scope and source. It does not substitute for
+the owner's explicit approval of the manual publication action.
 
 ## Verification limits
 
 Offline fixtures exercise malformed/tampered archives, wrong source/config/run,
-missing or failing evidence, lower-severity findings, source-file substitutions,
-Semgrep provenance, record scope, signature payloads and workflow guards. Real
-Linux validation must additionally establish OCI export/load/parser and scanner
-compatibility. Registry copying, keyless signing, Azure federation and production
-acceptance remain unexecuted until separately authorized. The non-publishing PR
-validation artifact is not an already signed or deployed release.
+missing or failing evidence, lower-severity findings, source substitutions,
+Semgrep provenance, record scope, signature payloads and workflow guards. Linux
+CI additionally validates real OCI export/load/parser and scanner compatibility.
+Registry copying, keyless signing and live Azure federation login are not proven
+by a non-publishing CI artifact. No Datto ACR publication or deployment has been
+performed by this preparation.
 
-## First Linux validation findings
-
-The first PR validation passed source/runtime checks but exposed a fixable medium
-Alpine zlib finding (CVE-2026-4738, installed 1.3.2-r1, fixed 1.4-r0). The runtime
-now requires zlib >=1.4-r0 from the official Alpine 3.24 repository. This is a
-package fix, not a scan suppression. The same run also exercised BuildKit 0.34.2
-OCI referrer-format attestations and revealed an artifact path compatibility
-issue; regression checks cover both before repeating Linux validation.
+The first all-severity Linux validation identified medium Alpine zlib finding
+CVE-2026-4738. The runtime now requires the official fixed zlib >=1.4-r0; subsequent
+full scans passed with no suppression. Strict BuildKit 0.34.2 OCI referrer support
+and runner-local artifact paths have real Linux validation and regression tests.

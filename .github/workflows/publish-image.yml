@@ -8,7 +8,7 @@ name: Publish signed Datto image (manual only)
         type: string
         required: true
       release_record_url:
-        description: Immutable approved Summit Ops publication record for this source
+        description: Immutable Ops record verified separately before this explicit publication request
         type: string
         required: true
       publication_confirmed:
@@ -33,6 +33,7 @@ env:
   ACR_SERVER: summititmcpacr.azurecr.io
   ACR_REPOSITORY: datto-rmm-mcp
   REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+  # Match FMG: the operator verifies private Ops content before dispatch; Actions records this immutable link.
   RELEASE_RECORD_URL: ${{ inputs.release_record_url }}
   PUBLICATION_CONFIRMED: ${{ inputs.publication_confirmed }}
   PUBLICATION_ENABLED: ${{ vars.DATTO_ACR_PUBLICATION_ENABLED }}
@@ -75,13 +76,6 @@ jobs:
           mkdir -p preflight
           python3 scripts/verify-semgrep-release.py > preflight/semgrep.json
           python3 -m unittest discover -s tests/release -p 'test_*.py' -v
-      - name: Verify immutable Ops publication scope with read-only cross-repository access
-        env:
-          GH_TOKEN: ${{ secrets.OPS_READ_TOKEN }}
-        run: |
-          set -euo pipefail
-          test -n "$GH_TOKEN" || { echo 'Missing dedicated read-only Ops record access'; exit 1; }
-          python3 scripts/verify-publication-record.py > preflight/ops-record.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: datto-publication-preflight
@@ -136,13 +130,6 @@ jobs:
           python3 scripts/release-package.py request
           python3 scripts/release-package.py verify --directory release --source "$GITHUB_SHA" --repository-root . > publication/package.json
           python3 scripts/verify-semgrep-release.py > publication/semgrep.json
-      - name: Revalidate the pinned Ops source and publication scope before Azure login
-        env:
-          GH_TOKEN: ${{ secrets.OPS_READ_TOKEN }}
-        run: |
-          set -euo pipefail
-          test -n "$GH_TOKEN" || { echo 'Missing dedicated read-only Ops record access'; exit 1; }
-          python3 scripts/verify-publication-record.py > publication/ops-record.json
       - name: Install registry copy tool
         run: |
           sudo apt-get update
@@ -201,7 +188,7 @@ jobs:
             "externalParameters":{"repository":metadata["repository"],"sourceCommit":metadata["sourceCommit"],"releaseRecord":os.environ["RELEASE_RECORD_URL"]},
             "internalParameters":{},"resolvedDependencies":[{"uri":"git+https://github.com/"+metadata["repository"],"digest":{"gitCommit":metadata["sourceCommit"]}}]},
             "runDetails":{"builder":{"id":workflow},"metadata":{"invocationId":f"https://github.com/{metadata['repository']}/actions/runs/{metadata['runId']}/attempts/{metadata['runAttempt']}"},
-              "byproducts":[{"name":"validated-release-package","content":metadata},{"name":"trusted-semgrep-evidence","content":json.loads(Path("publication/semgrep.json").read_text())},{"name":"verified-ops-publication-scope","content":json.loads(Path("publication/ops-record.json").read_text())}]}}
+              "byproducts":[{"name":"validated-release-package","content":metadata},{"name":"trusted-semgrep-evidence","content":json.loads(Path("publication/semgrep.json").read_text())}]}}
           Path("publication/validation-provenance.json").write_text(json.dumps(predicate,indent=2)+"\n")
           PY
           cosign sign --yes "$ref"
