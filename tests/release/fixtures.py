@@ -30,7 +30,7 @@ def sha(value):
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
-def archive(path, mutate=None, extra_members=None, corrupt_blob=False):
+def archive(path, mutate=None, extra_members=None, corrupt_blob=False, oci_artifact=False):
     blobs = {}
 
     def blob(value, media_type):
@@ -71,6 +71,10 @@ def archive(path, mutate=None, extra_members=None, corrupt_blob=False):
     attestation = {"schemaVersion": 2, "mediaType": release.MANIFEST,
                    "config": blob({}, "application/vnd.oci.image.config.v1+json"),
                    "layers": [blob(s, "application/vnd.in-toto+json") for s in statements]}
+    if oci_artifact:
+        attestation["artifactType"] = "application/vnd.docker.attestation.manifest.v1+json"
+        attestation["subject"] = {key: runtime_desc[key] for key in ("mediaType", "digest", "size")}
+        attestation["config"] = {**blob(b"{}", "application/vnd.oci.empty.v1+json"), "data": "e30="}
     if mutate:
         mutate("attestation", attestation)
     attest_desc = blob(attestation, release.MANIFEST)

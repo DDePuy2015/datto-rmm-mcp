@@ -93,3 +93,12 @@ Linux validation must additionally establish OCI export/load/parser and scanner
 compatibility. Registry copying, keyless signing, Azure federation and production
 acceptance remain unexecuted until separately authorized. The non-publishing PR
 validation artifact is not an already signed or deployed release.
+
+## First Linux validation findings
+
+The first PR validation passed source/runtime checks but exposed a fixable medium
+Alpine zlib finding (CVE-2026-4738, installed 1.3.2-r1, fixed 1.4-r0). The runtime
+now requires zlib >=1.4-r0 from the official Alpine 3.24 repository. This is a
+package fix, not a scan suppression. The same run also exercised BuildKit 0.34.2
+OCI referrer-format attestations and revealed an artifact path compatibility
+issue; regression checks cover both before repeating Linux validation.

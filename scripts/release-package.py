@@ -152,8 +152,30 @@ def inspect_archive(path, source, expected_config):
         attestation = json.loads(blob(attest))
         require(attestation.get("schemaVersion") == 2 and attestation.get("mediaType") == MANIFEST,
                 "Invalid attestation manifest")
-        require("subject" not in attestation, "Unexpected attestation subject")
-        blob(attestation["config"])
+        if "subject" in attestation or "artifactType" in attestation:
+            # BuildKit v0.34.2 writer.go:648-677 uses the OCI artifact format by
+            # default. Its only subject is the already verified runtime manifest.
+            require(attestation.get("artifactType") ==
+                    "application/vnd.docker.attestation.manifest.v1+json",
+                    "Unexpected attestation artifact type")
+            subject = attestation.get("subject")
+            require(isinstance(subject, dict) and type(subject.get("size")) is int and
+                    subject == {key: runtime[key] for key in ("mediaType", "digest", "size")},
+                    "Attestation artifact subject differs from runtime descriptor")
+            blob(subject)
+            # DescriptorEmptyJSON embeds exactly {} and BuildKit also writes its
+            # blob. Do not permit arbitrary embedded data or external references.
+            empty_config = {"mediaType": "application/vnd.oci.empty.v1+json",
+                            "digest": digest(b"{}"), "size": 2, "data": "e30="}
+            require(attestation.get("config") == empty_config and
+                    type(attestation["config"].get("size")) is int,
+                    "Invalid attestation empty JSON config")
+            require(blob({k: v for k, v in empty_config.items() if k != "data"}) == b"{}",
+                    "Attestation empty JSON blob mismatch")
+        else:
+            require(attestation["config"].get("mediaType") ==
+                    "application/vnd.oci.image.config.v1+json", "Invalid legacy attestation config type")
+            blob(attestation["config"])
         types = set()
         for layer in attestation.get("layers", []):
             require(layer.get("mediaType") == "application/vnd.in-toto+json", "Invalid attestation media type")

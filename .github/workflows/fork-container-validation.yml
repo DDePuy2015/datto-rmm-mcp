@@ -29,8 +29,8 @@ jobs:
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       LOCAL_IMAGE: datto-rmm-mcp:validation
-      RELEASE: ${{ github.workspace }}/../datto-release
-      EVIDENCE: ${{ github.workspace }}/../datto-release/reports
+      RELEASE: ${{ runner.temp }}/datto-release
+      EVIDENCE: ${{ runner.temp }}/datto-release/reports
     steps:
       - name: Checkout exact source commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

@@ -39,6 +39,10 @@ RUN --mount=type=secret,id=github_token \
 # Production stage
 FROM node:26-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS production
 
+# Patch CVE-2026-4738 in the pinned Alpine base before copying application files.
+# Official Alpine 3.24 repository supplies zlib 1.4-r0; the scan remains unsuppressed.
+RUN apk add --no-cache 'zlib>=1.4-r0'
+
 # Create a non-root user for security
 RUN addgroup -g 1001 -S datto && \
     adduser -S datto -u 1001 -G datto

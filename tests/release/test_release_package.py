@@ -203,3 +203,47 @@ class ExtendedBindingTests(PackageTests):
         config = archive(path, extra_members=[("blobs/sha256/" + "0" * 64, b"extra", tarfile.REGTYPE)])
         with self.assertRaisesRegex(ValueError, "Unreachable"):
             release.inspect_archive(path, SOURCE, config)
+
+class OCIArtifactTests(ArchiveTests):
+    """Pinned BuildKit v0.34.2 OCI artifact manifest, not an extra image graph."""
+    def inspect(self, **kwargs):
+        kwargs["oci_artifact"] = True
+        return super().inspect(**kwargs)
+
+    def test_artifact_subject_fields_and_extra_edges_fail_closed(self):
+        changes = [lambda v: v["subject"].update(digest="sha256:" + "0" * 64),
+                   lambda v: v["subject"].update(size=v["subject"]["size"] + 1),
+                   lambda v: v["subject"].update(mediaType=release.INDEX),
+                   lambda v: v["subject"].update(urls=["https://example.invalid/blob"]),
+                   lambda v: v["subject"].update(data="e30="),
+                   lambda v: v["subject"].update(platform={"os": "linux", "architecture": "amd64"}),
+                   lambda v: v.update(subject=None), lambda v: v.pop("subject"),
+                   lambda v: v.pop("artifactType"), lambda v: v.update(artifactType="unknown")]
+        for edit in changes:
+            with self.subTest(edit=edit), self.assertRaises(ValueError):
+                self.inspect(mutate=lambda stage, value: edit(value) if stage == "attestation" else None)
+
+    def test_artifact_empty_config_cannot_carry_other_data(self):
+        changes = [{"data": "e30=\n"}, {"data": "e30"}, {"data": "eA=="}, {"size": 3},
+                   {"digest": "sha256:" + "0" * 64}, {"mediaType": "application/vnd.oci.image.config.v1+json"},
+                   {"urls": ["https://example.invalid/blob"]}]
+        for change in changes:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.inspect(mutate=lambda stage, value:
+                             value["config"].update(change) if stage == "attestation" else None)
+
+    def test_artifact_missing_or_corrupt_empty_blob_rejected(self):
+        config = archive(self.path, oci_artifact=True)
+        empty_name = "blobs/sha256/" + release.digest(b"{}").split(":")[1]
+        with tarfile.open(self.path) as original:
+            entries = [(member, original.extractfile(member).read()) for member in original]
+        for replacement in (None, b"[]"):
+            with tarfile.open(self.path, "w") as rewritten:
+                for member, data in entries:
+                    if member.name == empty_name:
+                        if replacement is None:
+                            continue
+                        data = replacement
+                    rewritten.addfile(member, io.BytesIO(data))
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                release.inspect_archive(self.path, SOURCE, config)

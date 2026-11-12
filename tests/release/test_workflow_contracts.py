@@ -81,3 +81,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("PYTHONDONTWRITEBYTECODE: '1'", self.validation)
         self.assertIn("python3 -m unittest discover -s tests/release", self.validation)
         self.assertIn("test -z \"$(git status --porcelain)\"", self.validation)
+
+    def test_artifact_paths_are_absolute_outside_build_context_without_parent_segments(self):
+        self.assertIn("RELEASE: ${{ runner.temp }}/datto-release", self.validation)
+        self.assertIn("EVIDENCE: ${{ runner.temp }}/datto-release/reports", self.validation)
+        self.assertNotIn("/../", self.validation)
+
+    def test_runtime_base_has_fixed_zlib_without_scan_exception(self):
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        production = dockerfile[dockerfile.index(" AS production"):]
+        self.assertIn("RUN apk add --no-cache 'zlib>=1.4-r0'", production)
+        self.assertNotIn("CVE-2026-4738", self.validation)
