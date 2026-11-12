@@ -31,3 +31,7 @@ coverage/
 
 # Cloudflare Wrangler
 .wrangler/
+
+# Python release validation
+__pycache__/
+*.pyc

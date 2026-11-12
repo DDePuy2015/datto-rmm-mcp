@@ -1,5 +1,5 @@
 # Multi-stage build for efficient container size
-FROM node:26-alpine AS builder
+FROM node:26-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS builder
 
 # Build arguments
 ARG VERSION="unknown"
@@ -37,7 +37,7 @@ RUN --mount=type=secret,id=github_token \
     rm -f .npmrc
 
 # Production stage
-FROM node:26-alpine AS production
+FROM node:26-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS production
 
 # Create a non-root user for security
 RUN addgroup -g 1001 -S datto && \
@@ -94,7 +94,7 @@ LABEL org.opencontainers.image.description="Model Context Protocol server for Da
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
-LABEL org.opencontainers.image.source="https://github.com/WYRE-AI/datto-rmm-mcp"
+LABEL org.opencontainers.image.source="https://github.com/DDePuy2015/datto-rmm-mcp"
 LABEL org.opencontainers.image.documentation="https://github.com/WYRE-AI/datto-rmm-mcp/blob/main/README.md"
 LABEL org.opencontainers.image.url="https://github.com/WYRE-AI/datto-rmm-mcp/pkgs/container/datto-rmm-mcp"
 LABEL org.opencontainers.image.vendor="WYRE-AI"
