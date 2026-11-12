@@ -22,6 +22,7 @@ import {
 } from "./backend-auth.js";
 import { runWithServerRef, bindServerRef } from "./utils/server-ref.js";
 import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
+import { MAX_MCP_REQUEST_BODY_BYTES } from "./transport-limits.js";
 
 // Optional until the per-service gateway secret is provisioned through ops.
 const S2S_SECRET = process.env.CONDUIT_S2S_SECRET || "";
@@ -156,6 +157,7 @@ async function startHttpTransport(): Promise<void> {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
+        maxRequestBodySize: MAX_MCP_REQUEST_BODY_BYTES,
       });
 
       res.on("close", () => {

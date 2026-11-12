@@ -14,6 +14,10 @@ for (const [name, version] of Object.entries({
   'fast-uri': '3.1.9',
   hono: '4.13.13',
   'ip-address': '10.7.4',
+  '@hono/node-server': '2.1.7',
+  'body-parser': '2.4.0',
+  qs: '6.17.1',
+  zod: '4.6.7',
   '@wyre-ai/node-datto-rmm': '1.1.0',
 })) {
   assert.equal(JSON.parse(readFileSync(`/app/node_modules/${name}/package.json`, 'utf8')).version, version);
@@ -67,6 +71,10 @@ for (const version of ['2025-06-18', '2025-11-25']) {
   assert.equal(list.status, 200);
   assert.ok((await list.json()).result.tools.some(tool => tool.name === 'datto_get_device'));
 }
+// Oversized input must be rejected in the actual runtime before tool dispatch.
+const oversized = await request('tools/call', { name: 'datto_get_device', arguments: { deviceUid: 'fixture-device', padding: 'x'.repeat(256 * 1024) } }, '2025-06-18');
+assert.equal(oversized.status, 413);
+
 // A provider read without credentials must fail locally, even after discovery.
 const read = await request('tools/call', { name: 'datto_get_device', arguments: { deviceUid: 'fixture-device' } }, '2025-06-18');
 assert.equal(read.status, 200);
