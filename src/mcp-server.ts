@@ -24,6 +24,7 @@ import {
   type QuickJobRequest,
 } from "@wyre-ai/node-datto-rmm";
 import { getDevicePatches, getSitePatches } from "./patches.js";
+import { JOB_UID_PATTERN, readJobStatus } from "./job-status.js";
 import { elicitSelection } from "./utils/elicitation.js";
 import {
   ALERT_CARD_META,
@@ -382,6 +383,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
       tools: [
         {
           name: "datto_list_devices",
+          annotations: { readOnlyHint: true },
           description:
             "FULL REPORT (large/token-heavy): Return raw Datto device records, including UDFs, network fields, users, URLs, and management details. Use only when the complete provider payload is explicitly required. For normal inventory or status work, use the recommended datto_list_device_summaries tool instead.",
           inputSchema: {
@@ -403,6 +405,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_list_device_summaries",
+          annotations: { readOnlyHint: true },
           description:
             "RECOMMENDED: List compact operational device summaries. Returns only identity, site, type, OS, online state, last seen timestamp, and basic health/compliance fields; excludes UDFs, IPs, users, and remote URLs. Supports filtering by site, online state, and lastSeenBefore.",
           inputSchema: {
@@ -436,6 +439,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_find_device",
+          annotations: { readOnlyHint: true },
           description:
             "Find a device by hostname and return its UID plus a lightweight summary. Use this before datto_get_device when the user provides a hostname instead of a UID.",
           inputSchema: {
@@ -468,6 +472,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_get_device",
+          annotations: { readOnlyHint: true },
           description:
             "Get full details for a specific device by its UID. If you only have a hostname, call datto_find_device first to resolve the UID.",
           inputSchema: {
@@ -483,6 +488,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_get_device_patches",
+          annotations: { readOnlyHint: true },
           description:
             "Get the Windows patch-compliance report for one device by UID. This is a read-only report of installed, missing, and pending patches. Use this targeted tool for a single device; the site-wide report can be much larger.",
           inputSchema: {
@@ -498,6 +504,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_list_alerts",
+          annotations: { readOnlyHint: true },
           description: "List open alerts. Can filter by site.",
           inputSchema: {
             type: "object",
@@ -517,6 +524,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_get_alert",
+          annotations: { readOnlyHint: true },
           description: "Get details for a specific alert by its UID",
           _meta: ALERT_CARD_META,
           inputSchema: {
@@ -532,6 +540,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_resolve_alert",
+          annotations: { readOnlyHint: false },
           description: "Resolve an alert by its UID",
           _meta: ALERT_CARD_META,
           inputSchema: {
@@ -547,6 +556,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_list_sites",
+          annotations: { readOnlyHint: true },
           description: "List all sites in the account",
           inputSchema: {
             type: "object",
@@ -561,6 +571,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_get_site",
+          annotations: { readOnlyHint: true },
           description: "Get details for a specific site by its UID",
           inputSchema: {
             type: "object",
@@ -575,6 +586,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_get_site_patches",
+          annotations: { readOnlyHint: true },
           description:
             "FULL REPORT (potentially large): Get the Windows patch-compliance report for every device in a site by site UID. This can return a large amount of data and consume substantial context/tokens. Use datto_get_device_patches for a targeted device report when possible.",
           inputSchema: {
@@ -590,6 +602,7 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_submit_connectivity_check",
+          annotations: { readOnlyHint: false },
           description:
             "Run the reviewed connectivity-check quick job on one device. Provide exactly one destinationHost or targetHost and an optional port. Actor, role, and approval checks are enforced by the Summit proxy before this tool is forwarded.",
           inputSchema: {
@@ -617,7 +630,8 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
         },
         {
           name: "datto_run_quickjob",
-          description: "Run a quick job on a device",
+          annotations: { readOnlyHint: false },
+          description: "Run a quick job on a device. Use datto_get_job with the returned job UID to read compact status.",
           inputSchema: {
             type: "object",
             properties: {
@@ -643,7 +657,24 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
           },
         },
         {
+          name: "datto_get_job",
+          description:
+            "Read compact job status and counts by job UID. Optional deviceUid checks the job/device relationship; siteUid additionally checks that device's site and requires deviceUid. These caller-supplied checks do not establish tenant authorization. Returns no job names, actors, variables, or output.",
+          annotations: { readOnlyHint: true },
+          inputSchema: {
+            type: "object",
+            properties: {
+              jobUid: { type: "string", pattern: JOB_UID_PATTERN, maxLength: 128, description: "The job UID returned by Datto" },
+              deviceUid: { type: "string", pattern: JOB_UID_PATTERN, maxLength: 128, description: "Optional expected device UID for a job/device consistency check" },
+              siteUid: { type: "string", pattern: JOB_UID_PATTERN, maxLength: 128, description: "Optional expected site UID; requires deviceUid" },
+            },
+            required: ["jobUid"],
+            additionalProperties: false,
+          },
+        },
+        {
           name: "datto_get_device_audit",
+          annotations: { readOnlyHint: true },
           description:
             "Get audit data for a device (hardware, software, OS information)",
           inputSchema: {
@@ -1127,6 +1158,14 @@ export function createMcpServer(credentialOverrides?: DattoCredentials): Server 
             content: [
               { type: "text", text: JSON.stringify(result ?? {}, null, 2) },
             ],
+          };
+        }
+
+        case "datto_get_job": {
+          const result = await readJobStatus(client, args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result) }],
+            ...("error" in result ? { isError: true } : {}),
           };
         }
 

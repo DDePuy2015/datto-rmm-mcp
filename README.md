@@ -139,6 +139,8 @@ Datto RMM uses regional API endpoints. Select the platform that matches your acc
 | `datto_get_site` | Get site details |
 | `datto_get_site_patches` | **Full report:** Get patch compliance for every device in a site; may consume substantial context/tokens |
 | `datto_run_quickjob` | Run a quick job on a device |
+| `datto_submit_connectivity_check` | Run the reviewed connectivity-check component on one device |
+| `datto_get_job` | Read bounded job status, counts, and timestamps; optionally check job/device/site consistency |
 | `datto_get_device_audit` | Get device audit data (full or software only) |
 
 For normal device inventory and status checks, use `datto_list_device_summaries`. It is the recommended compact response and supports site, online-state, and `lastSeenBefore` filters. `datto_list_devices` is intentionally a full raw provider report; it includes verbose fields such as UDFs and can consume a large amount of context/tokens.
@@ -146,6 +148,35 @@ For normal device inventory and status checks, use `datto_list_device_summaries`
 For patch compliance, use `datto_get_device_patches` for a targeted device
 report. `datto_get_site_patches` is a full site-wide report and can be large;
 call it only when site-wide patch data is explicitly required.
+
+Use `datto_get_job` with the UID returned by a quick job. Its single JSON text
+result contains only `uid`, `status`, available nonnegative integer counts
+(`deviceCount`, `completedDeviceCount`, `failedDeviceCount`), and numeric
+millisecond timestamps (`createdAt`, `startedAt`, `completedAt`). Unknown status
+values become `unknown`; malformed counts/timestamps are omitted. Job names,
+actors, variables, components, stdout, stderr, and arbitrary provider fields
+are excluded. Failures return `isError: true` with a compact JSON `error` object
+containing `code` and a sanitized `message`. Existing tools retain their result
+formats, including PR16's nested quick-job payload serialization.
+
+Optional `deviceUid` checks the identifiers from Datto's job-result endpoint and
+adds a compact `device` record (`uid`, `status`). Optional `siteUid` requires
+`deviceUid`, verifies that device's current site through Datto, and adds that
+site UID. Missing or mismatched relationships fail without returning status.
+These are consistency checks on caller-supplied selectors. They do not establish
+ownership by the caller, historical site membership, or tenant authorization.
+The job endpoint itself contains no device/site relationship in SDK 1.1.0.
+
+Summit's gateway remains responsible for Entra admission, role authorization,
+actor-bound approvals, audit, and redaction. Its current contract permits broad
+Reader operational job-history reads. This provider receives credentials and
+gateway proof but does not verify an actor-to-site entitlement. Any future
+tenant-scoped job policy requires a separately reviewed trustworthy actor/scope
+binding and entitlement source; actor headers or supplied IDs alone cannot
+provide that enforcement. This tool does not alter the actor protocol or gateway
+roles. All read tools advertise `readOnlyHint: true`; alert resolution and both
+quick-job actions advertise `false`. These MCP annotations are client hints,
+not permission grants.
 
 ## Docker
 
