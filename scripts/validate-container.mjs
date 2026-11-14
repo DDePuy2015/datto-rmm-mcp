@@ -12,7 +12,7 @@ for (const [name, version] of Object.entries({
   '@modelcontextprotocol/sdk': '1.32.1',
   'proxy-addr': '2.0.8',
   'fast-uri': '3.1.9',
-  hono: '4.13.13',
+  hono: '4.13.16',
   'ip-address': '10.7.4',
   '@hono/node-server': '2.1.7',
   'body-parser': '2.4.0',
