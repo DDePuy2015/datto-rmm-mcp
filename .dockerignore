@@ -31,3 +31,6 @@ vitest.config.ts
 docker-compose.yml
 wrangler.json
 .do
+
+**/__pycache__
+*.pyc

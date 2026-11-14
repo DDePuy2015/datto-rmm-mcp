@@ -33,6 +33,7 @@ import {
   validateBackendToken,
 } from "./backend-auth.js";
 import { runWithServerRef } from "./utils/server-ref.js";
+import { MAX_MCP_REQUEST_BODY_BYTES } from "./transport-limits.js";
 
 export interface Env {
   DATTO_API_KEY?: string;
@@ -155,6 +156,7 @@ export default {
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
+        maxRequestBodySize: MAX_MCP_REQUEST_BODY_BYTES,
       });
 
       return runWithServerRef(server, async () => {

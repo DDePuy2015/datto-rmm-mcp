@@ -1,0 +1,170 @@
+name: Fork Container Validation
+
+# Build, validate and export one immutable artifact. No registry credentials or publication.
+'on':
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+    secrets:
+      NODE_AUTH_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  validate:
+    name: Validate source and runtime image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      LOCAL_IMAGE: datto-rmm-mcp:validation
+    steps:
+      - name: Initialize runner-local artifact paths outside the source checkout
+        run: |
+          printf 'RELEASE=%s/datto-release\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'EVIDENCE=%s/datto-release/reports\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Checkout exact source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          persist-credentials: false
+
+      - name: Verify source pin and record tracked inputs
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+          mkdir -p "$EVIDENCE"
+          python3 scripts/release-report.py source-files --output "$EVIDENCE/source-files.json"
+          python3 -m unittest discover -s tests/release -p 'test_*.py' -v
+
+      - name: Set up image-aligned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '26.13.1'
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+
+      - name: Install canonical dependencies
+        run: npm ci --ignore-scripts --engine-strict
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Validate source
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+      - name: Require zero production audit findings
+        run: npm audit --omit=dev --json > "$EVIDENCE/production-audit.json"
+
+      - name: Generate source CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx > "$EVIDENCE/source-sbom.cdx.json"
+
+      - name: Install checksum-verified scanner
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/trivy"
+          curl --fail --location --retry 3 https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz -o "$RUNNER_TEMP/trivy.tar.gz"
+          echo "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf  $RUNNER_TEMP/trivy.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP/trivy" trivy
+          "$RUNNER_TEMP/trivy/trivy" --version > "$EVIDENCE/scanner-version.txt"
+          echo "TRIVY_CACHE_DIR=$RUNNER_TEMP/trivy-cache" >> "$GITHUB_ENV"
+
+      - name: Scan tracked source for secrets without suppression
+        run: |
+          set -euo pipefail
+          # Raw matches never leave the runner. Only sanitized finding identities are retained.
+          "$RUNNER_TEMP/trivy/trivy" fs --scanners secret --skip-dirs node_modules,dist,.git --ignorefile /dev/null --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --exit-code 0 --format json --output "$RUNNER_TEMP/source-scan.json" .
+          python3 scripts/release-report.py source-scan --input "$RUNNER_TEMP/source-scan.json" --output "$EVIDENCE/source-scan-summary.json"
+          jq -e 'all(.results[]; (.secrets | length) == 0)' "$EVIDENCE/source-scan-summary.json"
+
+      - name: Set up pinned OCI builder
+        id: buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
+        with:
+          version: v0.38.2
+          driver-opts: image=moby/buildkit:v0.34.2
+
+      - name: Install registry-independent OCI transport
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y skopeo
+          skopeo --version > "$EVIDENCE/skopeo-version.txt"
+
+      - name: Build attested OCI image once without publishing
+        id: build
+        env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          BUILDX_METADATA_PROVENANCE: max
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          docker buildx version | tee "$EVIDENCE/buildx-version.txt"
+          grep -F 'v0.38.2 ' "$EVIDENCE/buildx-version.txt"
+          docker buildx inspect "$BUILDER" --bootstrap | tee "$EVIDENCE/buildkit-version.txt"
+          grep -E 'BuildKit( version)?:[[:space:]]+v0[.]34[.]2([[:space:]]|$)' "$EVIDENCE/buildkit-version.txt"
+          docker buildx build --builder "$BUILDER" --platform linux/amd64 --no-cache --progress plain --provenance=mode=max --sbom=true --metadata-file "$EVIDENCE/build-metadata.json" --build-arg "COMMIT_SHA=$EXPECTED_SHA" --label "org.opencontainers.image.source=https://github.com/DDePuy2015/datto-rmm-mcp" --label "org.opencontainers.image.revision=$EXPECTED_SHA" --secret id=github_token,env=NODE_AUTH_TOKEN --tag "$LOCAL_IMAGE" --output "type=oci,dest=$RELEASE/image.oci.tar" .
+          skopeo copy --override-os linux --override-arch amd64 "oci-archive:$RELEASE/image.oci.tar" "docker-daemon:$LOCAL_IMAGE"
+          docker image inspect "$LOCAL_IMAGE" > "$EVIDENCE/image-metadata.json"
+
+      - name: Validate the exact archived image in an isolated runtime
+        run: |
+          set -euo pipefail
+          docker run --detach --name datto-validation --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --memory 256m -e DATTO_BACKEND_TOKEN=synthetic-container-backend-token "$LOCAL_IMAGE" > /dev/null
+          trap 'docker rm -f datto-validation > /dev/null' EXIT
+          docker exec -i datto-validation node --input-type=module < scripts/validate-container.mjs
+          python3 scripts/release-report.py validation --input "$EVIDENCE/image-metadata.json" --output "$EVIDENCE/validation.json"
+
+      - name: Scan the exact image at every severity without suppression
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/trivy/trivy" image --image-src docker --scanners vuln,secret --pkg-types os,library --ignorefile /dev/null --ignore-unfixed=false --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --list-all-pkgs --timeout 15m --exit-code 0 --format json --output "$RUNNER_TEMP/image-scan.json" "$LOCAL_IMAGE"
+          python3 scripts/release-report.py image-scan --input "$RUNNER_TEMP/image-scan.json" --output "$EVIDENCE/image-scan-summary.json"
+          cat "$EVIDENCE/image-scan-summary.json"
+
+      - name: Generate image CycloneDX SBOM
+        run: |
+          "$RUNNER_TEMP/trivy/trivy" image --image-src docker --offline-scan --skip-db-update --format cyclonedx --output "$EVIDENCE/image-sbom.cdx.json" "$LOCAL_IMAGE"
+
+      - name: Bind and verify the complete validated release package
+        run: |
+          set -euo pipefail
+          # No Datto residual-risk exception exists. Any severity blocks release export.
+          python3 scripts/release-package.py create --directory "$RELEASE" --source "$EXPECTED_SHA"
+          python3 scripts/release-package.py verify --directory "$RELEASE" --source "$EXPECTED_SHA" --repository-root .
+
+      - name: Export validated image and evidence without registry credentials
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: datto-release-${{ env.EXPECTED_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RELEASE }}/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Retain sanitized validation evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: datto-validation-${{ env.EXPECTED_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.EVIDENCE }}/
+          retention-days: 14
+          if-no-files-found: warn

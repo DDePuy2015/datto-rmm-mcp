@@ -1,0 +1,218 @@
+name: Publish signed Datto image (manual only)
+
+'on':
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full reviewed main SHA; must equal this dispatch commit
+        type: string
+        required: true
+      release_record_url:
+        description: Immutable Ops record verified separately before this explicit publication request
+        type: string
+        required: true
+      publication_confirmed:
+        description: Explicit approval to publish this exact source to the existing Datto ACR repository
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: datto-acr-publication
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ACR_NAME: summititmcpacr
+  ACR_SERVER: summititmcpacr.azurecr.io
+  ACR_REPOSITORY: datto-rmm-mcp
+  REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+  # Match FMG: the operator verifies private Ops content before dispatch; Actions records this immutable link.
+  RELEASE_RECORD_URL: ${{ inputs.release_record_url }}
+  PUBLICATION_CONFIRMED: ${{ inputs.publication_confirmed }}
+  PUBLICATION_ENABLED: ${{ vars.DATTO_ACR_PUBLICATION_ENABLED }}
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require approved exact-main request and existing publisher configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          export MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          python3 scripts/release-package.py request
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" > "$RUNNER_TEMP/runs.json"
+          python3 - "$RUNNER_TEMP/runs.json" <<'PY'
+          import json, os, sys
+          runs = [r for page in json.load(open(sys.argv[1])) for r in page["workflow_runs"]]
+          for path in (".github/workflows/ci.yml", ".github/workflows/fork-container-validation.yml"):
+              matches = sorted((r for r in runs if r["path"] == path and r["head_sha"] == os.environ["GITHUB_SHA"] and r["event"] == "push"), key=lambda r: r["id"], reverse=True)
+              if not matches or matches[0]["status"] != "completed" or matches[0]["conclusion"] != "success":
+                  raise SystemExit("Missing successful latest exact-main validation: " + path)
+          PY
+          mkdir -p preflight
+          python3 scripts/verify-semgrep-release.py > preflight/semgrep.json
+          python3 -m unittest discover -s tests/release -p 'test_*.py' -v
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: datto-publication-preflight
+          path: preflight/
+          if-no-files-found: error
+          retention-days: 30
+
+  validate:
+    needs: preflight
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/fork-container-validation.yml
+    secrets:
+      NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+
+  publish:
+    needs: [preflight, validate]
+    if: ${{ github.repository == 'DDePuy2015/datto-rmm-mcp' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && inputs.publication_confirmed && vars.DATTO_ACR_PUBLICATION_ENABLED == 'true' && needs.preflight.result == 'success' && needs.validate.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - name: Initialize isolated ephemeral authentication paths
+        run: |
+          printf 'DOCKER_CONFIG=%s/datto-publisher-docker\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'REGISTRY_AUTH_FILE=%s/datto-publisher-registry.json\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: datto-release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/
+      - name: Revalidate source, complete package and trusted scan before Azure login
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p publication
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          export MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          python3 scripts/release-package.py request
+          python3 scripts/release-package.py verify --directory release --source "$GITHUB_SHA" --repository-root . > publication/package.json
+          python3 scripts/verify-semgrep-release.py > publication/semgrep.json
+      - name: Install registry copy tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y skopeo
+          skopeo --version > publication/skopeo-version.txt
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac
+        with:
+          cosign-release: v2.5.2
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Obtain ephemeral ACR credential through approved workload identity
+        run: |
+          set -euo pipefail
+          mkdir -p "$DOCKER_CONFIG"
+          token="$(az acr login --name "$ACR_NAME" --expose-token --query accessToken -o tsv)"
+          test -n "$token"
+          echo "::add-mask::$token"
+          printf '%s' "$token" | docker login "$ACR_SERVER" --username 00000000-0000-0000-0000-000000000000 --password-stdin
+          printf '%s' "$token" | skopeo login --authfile "$REGISTRY_AUTH_FILE" --username 00000000-0000-0000-0000-000000000000 --password-stdin "$ACR_SERVER"
+          unset token
+      - name: Copy, sign, attest and verify the already validated artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          expected="$(jq -r .indexDigest publication/package.json)"
+          tag="sha-$GITHUB_SHA-run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          identity="https://github.com/DDePuy2015/datto-rmm-mcp/.github/workflows/publish-image.yml@refs/heads/main"
+          issuer="https://token.actions.githubusercontent.com"
+          skopeo inspect --raw oci-archive:release/image.oci.tar > publication/local-index.json
+          test "sha256:$(sha256sum publication/local-index.json | cut -d' ' -f1)" = "$expected"
+          # The destination repository already exists. Failure is not treated as an empty tag list.
+          az acr repository show-tags --name "$ACR_NAME" --repository "$ACR_REPOSITORY" --detail -o json > "$RUNNER_TEMP/datto-tags.json"
+          existing="$(jq -r --arg tag "$tag" '.[] | select(.name == $tag) | .digest' "$RUNNER_TEMP/datto-tags.json")"
+          if [ -n "$existing" ]; then
+            test "$existing" = "$expected"
+          else
+            skopeo copy --all --preserve-digests --authfile "$REGISTRY_AUTH_FILE" oci-archive:release/image.oci.tar "docker://$ACR_SERVER/$ACR_REPOSITORY:$tag"
+          fi
+          ref="$ACR_SERVER/$ACR_REPOSITORY@$expected"
+          printf '{"stage":"copied","image":"%s","tag":"%s"}\n' "$ref" "$tag" >> publication/progress.jsonl
+          skopeo inspect --raw --authfile "$REGISTRY_AUTH_FILE" "docker://$ref" > publication/registry-index.json
+          cmp publication/local-index.json publication/registry-index.json
+          skopeo copy --all --preserve-digests --authfile "$REGISTRY_AUTH_FILE" "docker://$ref" "oci-archive:$RUNNER_TEMP/datto-roundtrip.oci.tar"
+          python3 scripts/release-package.py compare --directory release --source "$GITHUB_SHA" --archive "$RUNNER_TEMP/datto-roundtrip.oci.tar"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          metadata=json.loads(Path("publication/package.json").read_text())
+          workflow="https://github.com/DDePuy2015/datto-rmm-mcp/.github/workflows/publish-image.yml@refs/heads/main"
+          predicate={"buildDefinition":{"buildType":"https://github.com/DDePuy2015/datto-rmm-mcp/release-validation/v1",
+            "externalParameters":{"repository":metadata["repository"],"sourceCommit":metadata["sourceCommit"],"releaseRecord":os.environ["RELEASE_RECORD_URL"]},
+            "internalParameters":{},"resolvedDependencies":[{"uri":"git+https://github.com/"+metadata["repository"],"digest":{"gitCommit":metadata["sourceCommit"]}}]},
+            "runDetails":{"builder":{"id":workflow},"metadata":{"invocationId":f"https://github.com/{metadata['repository']}/actions/runs/{metadata['runId']}/attempts/{metadata['runAttempt']}"},
+              "byproducts":[{"name":"validated-release-package","content":metadata},{"name":"trusted-semgrep-evidence","content":json.loads(Path("publication/semgrep.json").read_text())}]}}
+          Path("publication/validation-provenance.json").write_text(json.dumps(predicate,indent=2)+"\n")
+          PY
+          cosign sign --yes "$ref"
+          cosign attest --yes --predicate release/reports/image-sbom.cdx.json --type cyclonedx "$ref"
+          cosign attest --yes --predicate publication/validation-provenance.json --type https://slsa.dev/provenance/v1 "$ref"
+          cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$ref" > publication/signature.json
+          cosign verify-attestation --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" --type cyclonedx "$ref" > publication/sbom-attestation.json
+          cosign verify-attestation --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" --type https://slsa.dev/provenance/v1 "$ref" > publication/provenance-attestation.json
+          python3 scripts/verify-release-attestations.py "$expected" publication/sbom-attestation.json release/reports/image-sbom.cdx.json publication/provenance-attestation.json publication/validation-provenance.json
+          printf '{"stage":"verified","image":"%s"}\n' "$ref" >> publication/progress.jsonl
+          printf '%s\n' "$ref" > publication/image.txt
+          echo 'Signed image verified. Publication only; no Azure revision or traffic changed.' >> "$GITHUB_STEP_SUMMARY"
+          cat publication/image.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain success or partial-publication evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: datto-publication-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: publication/
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Clear ephemeral registry login files
+        if: always()
+        run: |
+          if [ -n "${RUNNER_TEMP:-}" ]; then
+            rm -f "$RUNNER_TEMP/datto-publisher-registry.json" "$RUNNER_TEMP/datto-publisher-docker/config.json"
+          fi
