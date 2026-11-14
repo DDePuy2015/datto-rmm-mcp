@@ -118,7 +118,7 @@ describe("Node HTTP compact job status", () => {
     const body = await response.json() as { result: { tools: { name: string; annotations: { readOnlyHint: boolean }; inputSchema: { required: string[] } }[] } };
     const tools = body.result.tools;
     const mutations = ["datto_resolve_alert", "datto_run_quickjob", "datto_submit_connectivity_check"];
-    const reads = ["datto_list_devices", "datto_list_device_summaries", "datto_find_device", "datto_get_device", "datto_get_device_patches", "datto_list_alerts", "datto_get_alert", "datto_list_sites", "datto_get_site", "datto_get_site_patches", "datto_get_device_audit", "datto_get_job", "datto_list_device_jobs"];
+    const reads = ["datto_list_devices", "datto_list_device_summaries", "datto_find_device", "datto_get_device", "datto_get_device_patches", "datto_list_alerts", "datto_get_alert", "datto_list_sites", "datto_list_components", "datto_get_site", "datto_get_site_patches", "datto_get_device_audit", "datto_get_job", "datto_list_device_jobs"];
     expect(tools.map((tool) => tool.name).sort()).toEqual([...reads, ...mutations].sort());
     for (const tool of tools) expect(tool.annotations.readOnlyHint).toBe(reads.includes(tool.name));
     expect(tools.find((tool) => tool.name === "datto_get_job")!.inputSchema.required).toEqual(["jobUid"]);
@@ -137,6 +137,20 @@ describe("Node HTTP compact job status", () => {
     expect(requests).toEqual([{ path: "/job/job-123", method: "GET", authorization: "Bearer token-key-default" }]);
   });
 
+  it("reads the narrow component catalogue through authenticated Node HTTP", async () => {
+    respond = (path) => {
+      if (!path.startsWith("/account/components?")) throw new Error("Unexpected catalogue endpoint");
+      return json({ components: [{ uid: "component-1", name: "Synthetic component", categoryCode: "scripts", description: "PRIVATE", variables: [{ defaultValue: "PRIVATE" }] }], pageDetails: { nextPageUrl: null } });
+    };
+    const response = await send("tools/call", { name: "datto_list_components", arguments: { name: "synthetic" } }, { "x-datto-api-key": "key-components", "x-datto-api-secret": "secret-components" });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { result: { content: { text: string }[]; isError?: boolean } };
+    expect(body.result.isError).not.toBe(true);
+    expect(JSON.parse(body.result.content[0].text).components).toEqual([{ uid: "component-1", name: "Synthetic component", categoryCode: "scripts" }]);
+    expect(JSON.stringify(body)).not.toContain("PRIVATE");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ method: "GET", authorization: "Bearer token-key-components" });
+  });
   it("omits malformed counts/timestamps and reports an unfamiliar status as unknown", async () => {
     respond = () => json({ job: { uid: "job-123", status: "secret".repeat(1000), deviceCount: -1, completedDeviceCount: { secret: "x" }, failedDeviceCount: 0.5, createdAt: "secret", startedAt: 9e15, completedAt: -1 } });
     expect((await call({ jobUid: "job-123" })).data).toEqual({ uid: "job-123", status: "unknown" });

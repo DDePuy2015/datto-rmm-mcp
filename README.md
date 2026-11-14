@@ -136,6 +136,7 @@ Datto RMM uses regional API endpoints. Select the platform that matches your acc
 | `datto_get_alert` | Get alert details by UID (renders as an interactive card in MCP Apps hosts) |
 | `datto_resolve_alert` | Resolve an alert |
 | `datto_list_sites` | List all sites |
+| `datto_list_components` | [Bounded read-only component UID lookup](docs-component-catalogue.md), optional name filter; minimal metadata, no variables/defaults or execution grants |
 | `datto_get_site` | Get site details |
 | `datto_get_site_patches` | **Full report:** Get patch compliance for every device in a site; may consume substantial context/tokens |
 | `datto_run_quickjob` | Run a quick job on a device |
