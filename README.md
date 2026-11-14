@@ -198,3 +198,24 @@ layers or build arguments.
 ## License
 
 Apache-2.0
+
+
+### Device job history (read-only)
+
+`datto_list_device_jobs` finds job UIDs for one `deviceUid`, with optional
+`since`, `until`, `name` (job or latest component name), and `max` (1–100,
+default 25). The default window is seven days. Requires Datto Audit: View.
+Use the returned UID with `datto_get_job` for compact current status; that
+endpoint does not retrieve a historical run. Selectors are consistency
+inputs, not tenant authorization. Job/component names are untrusted data.
+
+The activity window is scanned even after `max` rows are selected, because
+adjacent pages can contain recurring deployments needed for correlation.
+Work remains capped at 10 pages and 50 distinct result lookups. Check
+`activityScanComplete` and `notes`: a page cap withholds all correlated
+outcomes, and failed/capped component lookups can make name filtering incomplete.
+Completeness describes activity pagination, not retention or historical result
+availability. Datto keeps only the latest result per job/device; ambiguous,
+replaced or out-of-window outcomes remain unknown. No output or component
+discovery tools are added. This port derives from upstream PR #101 at
+`39859ba109768bcfa932af51244156fa6754c836` and builds on Summit PR #18.
