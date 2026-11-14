@@ -179,15 +179,18 @@ export interface PatchesResponse {
   patches: Patch[];
 }
 
-export async function dattoApiGet<T>(
-  creds: DattoCredentials,
-  path: string
-): Promise<T> {
+/** Validate a provider URL before credentials are acquired or any request is sent. */
+export function dattoApiUrl(creds: DattoCredentials, path: string): URL {
   const apiUrl = platformUrl(creds.platform);
   const url = new URL(path.startsWith("/v2/") ? `${apiUrl}/api${path}` : path);
   if (url.origin !== apiUrl || !url.pathname.startsWith("/api/v2/") || url.username || url.password || url.hash) {
     throw new Error("Refusing Datto paging URL outside the configured platform API");
   }
+  return url;
+}
+
+export async function dattoApiGet<T>(creds: DattoCredentials, path: string): Promise<T> {
+  const url = dattoApiUrl(creds, path);
   const token = await getAccessToken(creds);
   const response = await fetch(url.href, {
     redirect: "error",
