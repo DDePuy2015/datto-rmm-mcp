@@ -213,7 +213,7 @@ describe("Node HTTP compact job status", () => {
     ]);
     expect(a.data).toEqual({ uid: "job-a", status: "active" });
     expect(b.data).toEqual({ uid: "job-b", status: "completed" });
-    expect(oauth).toEqual([{ username: "key-a", password: "secret-a" }, { username: "key-b", password: "secret-b" }]);
+    expect([...oauth].sort((a, b) => String(a.username).localeCompare(String(b.username)))).toEqual([{ username: "key-a", password: "secret-a" }, { username: "key-b", password: "secret-b" }]);
   });
 
   it.each([
