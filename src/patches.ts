@@ -179,13 +179,18 @@ export interface PatchesResponse {
   patches: Patch[];
 }
 
-async function fetchPatches(
+export async function dattoApiGet<T>(
   creds: DattoCredentials,
   path: string
-): Promise<PatchesResponse> {
+): Promise<T> {
   const apiUrl = platformUrl(creds.platform);
+  const url = new URL(path.startsWith("/v2/") ? `${apiUrl}/api${path}` : path);
+  if (url.origin !== apiUrl || !url.pathname.startsWith("/api/v2/") || url.username || url.password || url.hash) {
+    throw new Error("Refusing Datto paging URL outside the configured platform API");
+  }
   const token = await getAccessToken(creds);
-  const response = await fetch(`${apiUrl}/api${path}`, {
+  const response = await fetch(url.href, {
+    redirect: "error",
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -193,14 +198,15 @@ async function fetchPatches(
     // A provider-side token invalidation only invalidates this credential set.
     tokenCache.delete(tokenCacheKey(creds));
     const retryToken = await getAccessToken(creds);
-    const retryResponse = await fetch(`${apiUrl}/api${path}`, {
+    const retryResponse = await fetch(url.href, {
+    redirect: "error",
       headers: { Authorization: `Bearer ${retryToken}` },
     });
     if (!retryResponse.ok) {
       await drainResponse(retryResponse, MAX_ERROR_BODY_BYTES);
       throw new Error(`Datto RMM API request failed with status ${retryResponse.status}`);
     }
-    return readJson<PatchesResponse>(retryResponse);
+    return readJson<T>(retryResponse);
   }
 
   if (!response.ok) {
@@ -208,19 +214,19 @@ async function fetchPatches(
     throw new Error(`Datto RMM API request failed with status ${response.status}`);
   }
 
-  return readJson<PatchesResponse>(response);
+  return readJson<T>(response);
 }
 
 export function getDevicePatches(
   creds: DattoCredentials,
   deviceUid: string
 ): Promise<PatchesResponse> {
-  return fetchPatches(creds, `/v2/device/${encodeURIComponent(deviceUid)}/patches`);
+  return dattoApiGet<PatchesResponse>(creds, `/v2/device/${encodeURIComponent(deviceUid)}/patches`);
 }
 
 export function getSitePatches(
   creds: DattoCredentials,
   siteUid: string
 ): Promise<PatchesResponse> {
-  return fetchPatches(creds, `/v2/site/${encodeURIComponent(siteUid)}/patches`);
+  return dattoApiGet<PatchesResponse>(creds, `/v2/site/${encodeURIComponent(siteUid)}/patches`);
 }

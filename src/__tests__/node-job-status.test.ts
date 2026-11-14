@@ -118,7 +118,7 @@ describe("Node HTTP compact job status", () => {
     const body = await response.json() as { result: { tools: { name: string; annotations: { readOnlyHint: boolean }; inputSchema: { required: string[] } }[] } };
     const tools = body.result.tools;
     const mutations = ["datto_resolve_alert", "datto_run_quickjob", "datto_submit_connectivity_check"];
-    const reads = ["datto_list_devices", "datto_list_device_summaries", "datto_find_device", "datto_get_device", "datto_get_device_patches", "datto_list_alerts", "datto_get_alert", "datto_list_sites", "datto_get_site", "datto_get_site_patches", "datto_get_device_audit", "datto_get_job"];
+    const reads = ["datto_list_devices", "datto_list_device_summaries", "datto_find_device", "datto_get_device", "datto_get_device_patches", "datto_list_alerts", "datto_get_alert", "datto_list_sites", "datto_get_site", "datto_get_site_patches", "datto_get_device_audit", "datto_get_job", "datto_list_device_jobs"];
     expect(tools.map((tool) => tool.name).sort()).toEqual([...reads, ...mutations].sort());
     for (const tool of tools) expect(tool.annotations.readOnlyHint).toBe(reads.includes(tool.name));
     expect(tools.find((tool) => tool.name === "datto_get_job")!.inputSchema.required).toEqual(["jobUid"]);
@@ -223,6 +223,39 @@ describe("Node HTTP compact job status", () => {
   ])("preserves gateway guards before OAuth for %j", async (headers, status) => {
     const response = await send("tools/call", { name: "datto_get_job", arguments: { jobUid: "job-123" } }, headers);
     expect(response.status).toBe(status);
+    expect(oauth).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+});
+
+
+describe("Node HTTP device job history", () => {
+  it("uses request credentials for activity and SDK results without returning raw details", async () => {
+    const at = Date.now() - 60000;
+    respond = (path) => {
+      if (path.startsWith("/activity-logs?")) return json({ activities: [{ date: at / 1000, details: JSON.stringify({ "job.uid": "history-job", "device.uid": "history-device", "job.name": "Backup", private: "must-not-return" }) }], pageDetails: { nextPageUrl: null } });
+      expect(path).toBe("/job/history-job/results/history-device");
+      return json({ result: { jobUid: "history-job", deviceUid: "history-device", ranOn: at, jobDeploymentStatus: "completed", componentResults: [] } });
+    };
+    const response = await send("tools/call", { name: "datto_list_device_jobs", arguments: { deviceUid: "history-device" } }, { "x-datto-api-key": "history-key", "x-datto-api-secret": "history-secret" });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { result: { isError?: boolean; content: { text: string }[] } };
+    expect(body.result.isError).toBeFalsy();
+    const data = JSON.parse(body.result.content[0].text);
+    expect(data.activityScanComplete).toBe(true);
+    expect(data.jobs[0].status).toBe("completed");
+    expect(body.result.content[0].text).not.toContain("must-not-return");
+    expect(requests).toHaveLength(2);
+    expect(requests.every((r) => r.authorization === "Bearer token-history-key" && r.method === "GET")).toBe(true);
+    expect(oauth.every((o) => o.username === "history-key" && o.password === "history-secret")).toBe(true);
+  });
+  it.each<Record<string, string>>([
+    { "x-summit-datto-backend-token": "wrong" },
+    { "x-gateway-s2s": "wrong" },
+    { "x-datto-api-key": "" },
+  ])("preserves history gateway guards before OAuth: %j", async (headers) => {
+    const response = await send("tools/call", { name: "datto_list_device_jobs", arguments: { deviceUid: "history-device" } }, headers);
+    expect(response.status).toBe(401);
     expect(oauth).toEqual([]);
     expect(requests).toEqual([]);
   });
